@@ -37,6 +37,15 @@ module regs_module (
   reg [31:0] int_enable = 0;
   reg [ 7:0] int_vector = 0;
   reg [31:0] did_vid = `TwPM;
+  reg        globalIntEnable = 0;
+  reg        commandReadyEnable = 0;
+  reg        localityChangeIntEnable = 0;
+  reg        stsValidIntEnable = 0;
+  reg        dataAvailIntEnable = 0;
+  reg        commandReadyIntOccured = 0;
+  reg        localityChangeIntOccured = 0;
+  reg        stsValidIntOccured = 0;
+  reg        dataAvailIntOccured = 0;
 
   // verilog_format: on
 
@@ -44,7 +53,47 @@ module regs_module (
     if (data_req && ~data_rd) begin
       // Parse address and prepare proper data
       casez (addr_i[11:0])
+        // TPM_ACCESS - TODO
+        `TPM_INT_ENABLE: begin
+          case (addr_i[1:0])
+            2'b00:        data <= {commandReadyEnable, 2'b00, /* typePolarity = low level */ 2'b01,
+                                   localityChangeIntEnable, stsValidIntEnable, dataAvailIntEnable};
+            2'b11:        data <= {globalIntEnable, 7'h00};
+            default:      data <= 8'h00;
+          endcase
+        end
         `TPM_INT_VECTOR:  data <= int_vector;
+        `TPM_INT_STATUS: begin
+          case (addr_i[1:0])
+            2'b00:        data <= {commandReadyIntOccured, 4'b0000, localityChangeIntOccured,
+                                   stsValidIntOccured, dataAvailIntOccured};
+            default:      data <= 8'h00;
+          endcase
+        end
+        `TPM_INTF_CAPABILITY: begin
+          case (addr_i[1:0])
+            // TODO: for now only dataAvail and localityChange interrupts enabled, support the rest
+            2'b00:        data <= 8'h15;
+            // Static burst count, legacy transfer size only
+            2'b01:        data <= 8'h01;
+            2'b10:        data <= 8'h00;
+            // Interface version = 1.3 for TPM 2.0
+            2'b11:        data <= 8'h30;
+          endcase
+        end
+        // TPM_STS - TODO
+        // TPM_DATA_FIFO, TPM_XDATA_FIFO - TODO
+        `TPM_INTERFACE_ID: begin
+          case (addr_i[1:0])
+            // FIFO interface as defined in PTP for TPM 2.0
+            2'b00:        data <= 8'h00;
+            // TIS supported, CRB not supported, Locality 0 only
+            // TODO: change to 8'h21 when all 5 localities are supported
+            2'b01:        data <= 8'h20;
+            // We don't support changes between TIS and CRB
+            default:      data <= 8'h00;
+          endcase
+        end
         `TPM_DID_VID: begin
           case (addr_i[1:0])
             2'b00:        data <= did_vid[ 7: 0];
@@ -62,7 +111,34 @@ module regs_module (
       driving_data  <= 0;
     end else if (data_wr && ~wr_done) begin
       casez (addr_i[11:0])
+        // TPM_ACCESS - TODO
+        `TPM_INT_ENABLE: begin
+          case (addr_i[1:0])
+            2'b00: begin
+              dataAvailIntEnable      <= data_io[0];
+              stsValidIntEnable       <= data_io[1];
+              localityChangeIntEnable <= data_io[2];
+              commandReadyEnable      <= data_io[7];
+            end
+            2'b11: globalIntEnable    <= data_io[7];
+          endcase
+        end
         `TPM_INT_VECTOR:  int_vector[3:0] <= data_io[3:0];
+        `TPM_INT_STATUS: begin
+          case (addr_i[1:0])
+            2'b00: begin
+              if (data_io[0]) dataAvailIntOccured       <= 0;
+              if (data_io[1]) stsValidIntOccured        <= 0;
+              if (data_io[2]) localityChangeIntOccured  <= 0;
+              if (data_io[7]) commandReadyIntOccured    <= 0;
+            end
+          endcase
+        end
+        // TPM_INTF_CAPABILITY - read-only register
+        // TPM_STS - TODO
+        // TPM_DATA_FIFO, TPM_XDATA_FIFO - TODO
+        // TPM_INTERFACE_ID - writable bits are for switching between CRB and TIS, not supported
+        // TPM_DID_VID, TPM_RID - read-only registers
       endcase
       wr_done_reg <= 1;
     end else if (wr_done && ~data_wr) begin
@@ -70,8 +146,11 @@ module regs_module (
     end
   end
 
-  assign irq_num = int_vector[3:0];
   assign wr_done = wr_done_reg;
   assign data_rd = driving_data;
   assign data_io = driving_data ? data : 8'hzz;
+  assign irq_num = int_vector;
+  assign interrupt = globalIntEnable & |int_vector &
+                     (dataAvailIntOccured | stsValidIntOccured | localityChangeIntOccured |
+                      commandReadyIntOccured);
 endmodule
