@@ -74,6 +74,14 @@ module regs_tb ();
     for (i = 0; i < 4; i++) read_b (addr + i, data[8*i +: 8]);
   endtask
 
+  task request_locality (input integer locality);
+    write_b (`TPM_ACCESS + 16'h1000 * locality, 8'h02);
+  endtask
+
+  task relinquish_locality (input integer locality);
+    write_b (`TPM_ACCESS + 16'h1000 * locality, 8'h20);
+  endtask
+
   initial begin
     clk_i = 1'b1;
     forever #20 clk_i = ~clk_i;
@@ -150,7 +158,9 @@ module regs_tb ();
     end
     // TODO: repeat above test for other localities
 
-    $display("Testing TPM_INT_VECTOR write without delay");
+    request_locality (0);
+
+    $display("Testing TPM_INT_VECTOR write without delay - proper locality");
     delay = 0;
     write_b (`TPM_INT_VECTOR, 8'h05);
     if (IRQn !== 4'h5)
@@ -168,7 +178,7 @@ module regs_tb ();
     if (tmp_reg[7:0] !== 8'h0A)
       $display("### Reserved bits in TPM_INT_VECTOR modified @ %t", IRQn, $realtime);
 
-    $display("Testing TPM_INT_VECTOR write with delay");
+    $display("Testing TPM_INT_VECTOR write with delay - proper locality");
     delay = 10;
     write_b (`TPM_INT_VECTOR, 8'h05);
     if (IRQn !== 4'h5)
@@ -184,6 +194,84 @@ module regs_tb ();
 
     read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
     if (tmp_reg[7:0] !== 8'h0A)
+      $display("### Reserved bits in TPM_INT_VECTOR modified @ %t", IRQn, $realtime);
+
+    write_b (`TPM_INT_VECTOR, 8'h00);
+    relinquish_locality (0);
+    request_locality (2);
+
+    $display("Testing TPM_INT_VECTOR write without delay - wrong locality");
+    delay = 0;
+    write_b (`TPM_INT_VECTOR, 8'h05);
+    if (IRQn !== 4'h0)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h00)
+      $display("### Wrong IRQn read back (0x%h) @ %t", IRQn, $realtime);
+
+    write_b (`TPM_INT_VECTOR, 8'hFA);
+    if (IRQn !== 4'h0)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h00)
+      $display("### Reserved bits in TPM_INT_VECTOR modified @ %t", IRQn, $realtime);
+
+    $display("Testing TPM_INT_VECTOR write with delay - wrong locality");
+    delay = 10;
+    write_b (`TPM_INT_VECTOR, 8'h05);
+    if (IRQn !== 4'h0)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h00)
+      $display("### Wrong IRQn read back (0x%h) @ %t", IRQn, $realtime);
+
+    write_b (`TPM_INT_VECTOR, 8'hFA);
+    if (IRQn !== 4'h0)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h00)
+      $display("### Reserved bits in TPM_INT_VECTOR modified @ %t", IRQn, $realtime);
+
+    relinquish_locality (2);
+
+    $display("Testing TPM_INT_VECTOR write without delay - no locality");
+    delay = 0;
+    write_b (`TPM_INT_VECTOR, 8'h05);
+    if (IRQn !== 4'h0)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h00)
+      $display("### Wrong IRQn read back (0x%h) @ %t", IRQn, $realtime);
+
+    write_b (`TPM_INT_VECTOR, 8'hFA);
+    if (IRQn !== 4'h0)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h00)
+      $display("### Reserved bits in TPM_INT_VECTOR modified @ %t", IRQn, $realtime);
+
+    $display("Testing TPM_INT_VECTOR write with delay - no locality");
+    delay = 10;
+    write_b (`TPM_INT_VECTOR, 8'h05);
+    if (IRQn !== 4'h0)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h00)
+      $display("### Wrong IRQn read back (0x%h) @ %t", IRQn, $realtime);
+
+    write_b (`TPM_INT_VECTOR, 8'hFA);
+    if (IRQn !== 4'h0)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h00)
       $display("### Reserved bits in TPM_INT_VECTOR modified @ %t", IRQn, $realtime);
 
     #3000;

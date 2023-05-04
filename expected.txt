@@ -1,5 +1,5 @@
 // 0x00000000
-81    // TPM_ACCESS (1B) - TODO: locality state machine
+81    // TPM_ACCESS (1B)
 ff
 ff
 ff
