@@ -3,8 +3,6 @@
 // Copyright (C) 2023 3mdeb Sp. z o.o.
 
 // verilog_format: off  // verible-verilog-format messes up comments alignment
-`define MASK_4B             12'b111111111100
-
 `define TPM_ACCESS          12'b000000000000    // 1 byte,  0x000
 `define TPM_INT_ENABLE      12'b0000000010??    // 4 bytes, 0x008-0x00B
 `define TPM_INT_VECTOR      12'b000000001100    // 1 byte,  0x00C

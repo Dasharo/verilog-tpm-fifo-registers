@@ -6,6 +6,8 @@
 
 `include "defines.v"
 
+`define MASK_4B             12'b111111111100
+
 module regs_tb ();
 
   // verilog_format: off  // verible-verilog-format messes up comments alignment
@@ -20,9 +22,10 @@ module regs_tb ();
   wire [ 3:0] IRQn;           // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
   wire        int;            // Whether interrupt should be signaled to host, active high
 
-  integer     cur_delay, delay;
+  integer     delay = 0, i = 0;
   reg  [ 7:0] data_reg;
   reg  [31:0] tmp_reg;
+  reg  [ 7:0] expected [0:4095];
 
   // verilog_format: on
 
@@ -34,19 +37,15 @@ module regs_tb ();
       @(negedge clk_i);
       data_wr = 1;
       @(posedge wr_done);
-      // TODO: delay
+      repeat (delay) @(negedge clk_i);
       @(negedge clk_i);
       data_wr = 0;
     end
   endtask
 
   task write_w (input [15:0] addr, input [31:0] data);
-    begin
-      write_b (addr + 0, data[ 7: 0]);
-      write_b (addr + 1, data[15: 8]);
-      write_b (addr + 2, data[23:16]);
-      write_b (addr + 3, data[31:24]);
-    end
+    integer i;
+    for (i = 0; i < 4; i++) write_b (addr + i, data[8*i +: 8]);
   endtask
 
   task read_b (input [15:0] addr, output [7:0] data);
@@ -55,21 +54,24 @@ module regs_tb ();
       addr_i = addr;
       @(negedge clk_i);
       data_req = 1;
-      @(posedge data_rd)  // no semicolon - may or may not catch hazards
-      @(negedge clk_i);
+      // No semicolons in next 2 lines - may or may not catch hazards
+      @(posedge data_rd)
+      @(negedge clk_i)
       data = data_io;
-      // TODO: delay, re-read and compare, @negedge clk_i
+      // Check if data is held during whole request
+      // TODO: can we use $monitor for this?
+      repeat (delay) begin
+        @(negedge clk_i);
+        if (data !== data_io)
+          $display("### Data changed before request was de-asserted @ %t", $realtime);
+      end
       data_req = 0;
     end
   endtask
 
   task read_w (input [15:0] addr, output [31:0] data);
-    begin
-      read_b (addr + 0, data[ 7: 0]);
-      read_b (addr + 1, data[15: 8]);
-      read_b (addr + 2, data[23:16]);
-      read_b (addr + 3, data[31:24]);
-    end
+    integer i;
+    for (i = 0; i < 4; i++) read_b (addr + i, data[8*i +: 8]);
   endtask
 
   initial begin
@@ -91,32 +93,94 @@ module regs_tb ();
     tmp_reg = 0;
     #100;
 
+    $readmemh("expected.txt", expected);
+
+    $display("Testing simple register reads without delay");
     read_w (`TPM_DID_VID & `MASK_4B, tmp_reg);
     if (tmp_reg !== `TwPM)
-      $display("### Unexpected DID_VID value (0x%x) @ %t", tmp_reg, $realtime);
+      $display("### Unexpected DID_VID value (0x%h) @ %t", tmp_reg, $realtime);
 
     read_b (`TPM_RID, tmp_reg[7:0]);
     if (tmp_reg[7:0] !== 8'h00)
-      $display("### Unexpected RID value (0x%x) @ %t", tmp_reg[7:0], $realtime);
-
-    // TODO: repeat above tests for other localities
-    // TODO: repeat with delays
+      $display("### Unexpected RID value (0x%h) @ %t", tmp_reg[7:0], $realtime);
 
     read_b (`TPM_RID + 1, tmp_reg[7:0]);
     if (tmp_reg[7:0] !== 8'hFF)
-      $display("### Unexpected value of reserved register (0x%x) @ %t", tmp_reg[7:0], $realtime);
+      $display("### Unexpected value of reserved register (0x%h) @ %t", tmp_reg[7:0], $realtime);
+    // TODO: repeat above tests for other localities
 
+    $display("Testing simple register reads with delay");
+    delay = 10;
+    read_w (`TPM_DID_VID & `MASK_4B, tmp_reg);
+    if (tmp_reg !== `TwPM)
+      $display("### Unexpected DID_VID value (0x%h) @ %t", tmp_reg, $realtime);
+
+    read_b (`TPM_RID, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h00)
+      $display("### Unexpected RID value (0x%h) @ %t", tmp_reg[7:0], $realtime);
+
+    read_b (`TPM_RID + 1, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'hFF)
+      $display("### Unexpected value of reserved register (0x%h) @ %t", tmp_reg[7:0], $realtime);
+    // TODO: repeat above tests for other localities
+
+    delay = 0;
+
+    $display("Checking register values against expected.txt");
+    for (i = 0; i < 4096; i++) begin
+      read_b (i, tmp_reg[7:0]);
+      if (tmp_reg[7:0] !== expected[i])
+        $display("### Wrong value at 0x%0h (got 0x%h, expected 0x%h)", i[15:0], tmp_reg[7:0],
+                 expected[i]);
+    end
+    // TODO: repeat above test for other localities
+
+    $display("Checking if RO registers are writable");
+    // Except for TPM_(X)DATA_FIFO and TPM_HASH_* writes of 0 should be safe
+    for (i = 0; i < 4096; i++) begin
+      // No break/continue until SystemVerilog...
+      if (((i & `MASK_4B) !== (`TPM_DATA_FIFO & `MASK_4B)) &&
+          ((i & `MASK_4B) !== (`TPM_XDATA_FIFO & `MASK_4B))) begin
+        write_b (i, 8'h00);
+        read_b (i, tmp_reg[7:0]);
+        if (tmp_reg[7:0] !== expected[i])
+          $display("### Wrong value at 0x%0h (got 0x%h, expected 0x%h)", i[15:0], tmp_reg[7:0],
+                   expected[i]);
+      end
+    end
+    // TODO: repeat above test for other localities
+
+    $display("Testing TPM_INT_VECTOR write without delay");
+    delay = 0;
     write_b (`TPM_INT_VECTOR, 8'h05);
     if (IRQn !== 4'h5)
-      $display("### Wrong IRQn reported (0x%x) @ %t", IRQn, $realtime);
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
 
     read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
     if (tmp_reg[7:0] !== 8'h05)
-      $display("### Wrong IRQn read back (0x%x) @ %t", IRQn, $realtime);
+      $display("### Wrong IRQn read back (0x%h) @ %t", IRQn, $realtime);
 
     write_b (`TPM_INT_VECTOR, 8'hFA);
     if (IRQn !== 4'hA)
-      $display("### Wrong IRQn reported (0x%x) @ %t", IRQn, $realtime);
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h0A)
+      $display("### Reserved bits in TPM_INT_VECTOR modified @ %t", IRQn, $realtime);
+
+    $display("Testing TPM_INT_VECTOR write with delay");
+    delay = 10;
+    write_b (`TPM_INT_VECTOR, 8'h05);
+    if (IRQn !== 4'h5)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
+
+    read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
+    if (tmp_reg[7:0] !== 8'h05)
+      $display("### Wrong IRQn read back (0x%h) @ %t", IRQn, $realtime);
+
+    write_b (`TPM_INT_VECTOR, 8'hFA);
+    if (IRQn !== 4'hA)
+      $display("### Wrong IRQn reported (0x%h) @ %t", IRQn, $realtime);
 
     read_b (`TPM_INT_VECTOR, tmp_reg[7:0]);
     if (tmp_reg[7:0] !== 8'h0A)
