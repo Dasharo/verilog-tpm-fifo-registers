@@ -40,9 +40,6 @@ git clone https://github.com/Dasharo/verilog-tpm-fifo-registers.git
 iverilog -o tpm_fifo_regs regs_tb.v regs_module.v defines.v
 ```
 
-> It is likely that one can see a few warnings - these are not that important
-> right now and we can just skip them
-
 3. After compilation has ended, we can use `vvp` tool to generate the `.vcd`
    file with timing simulation content:
 
@@ -58,8 +55,14 @@ Testing simple register reads without delay
 Testing simple register reads with delay
 Checking register values against expected.txt
 Checking if RO registers are writable
-Testing TPM_INT_VECTOR write without delay
-Testing TPM_INT_VECTOR write with delay
+Testing mechanisms for changing locality
+Testing mechanisms for seizing locality
+Testing TPM_INT_VECTOR write without delay - proper locality
+Testing TPM_INT_VECTOR write with delay - proper locality
+Testing TPM_INT_VECTOR write without delay - wrong locality
+Testing TPM_INT_VECTOR write with delay - wrong locality
+Testing TPM_INT_VECTOR write without delay - no locality
+Testing TPM_INT_VECTOR write with delay - no locality
 ```
 
 Order, description and number of tests may change in the future. Make sure that
@@ -74,3 +77,7 @@ will be produced.
 ```bash
 gtkwave regs_tb.vcd
 ```
+
+To make it easier to navigate between timing diagrams and testbench code, a
+signal named `test` contains an abbreviation of currently executing test case.
+Add it to the diagram and set its data format to ASCII.
