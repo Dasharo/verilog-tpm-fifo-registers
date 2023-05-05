@@ -142,7 +142,12 @@ module regs_module (
             if (data_io[1]) begin           // requestUse
               if (activeLocality === `LOCALITY_NONE)
                 activeLocality <= addrLocality;
-              else
+              // Specification is written in a way that suggests that requestUse is actually set in
+              // the following case, but it would be cleared by writing to activeLocality. Blocking
+              // the write here results in different pendingRequest values for other localities, but
+              // it is consistent with existing TPMs. This is a corner case that shouldn't be hit by
+              // a well-written software, but for compatibility do whatever other vendors are doing.
+              else if (activeLocality !== addrLocality)
                 requestUse[addrLocality] <= 1'b1;
             end else if (data_io[3]) begin  // Seize
               // Specification doesn't explicitly say how to handle write to this bit if no locality
@@ -156,7 +161,7 @@ module regs_module (
                 beenSeized[activeLocality]  <= 1'b1;
               end
             end else if (data_io[4]) begin  // beenSeized
-              beenSeized[addrLocality]  <= 1'b1;
+              beenSeized[addrLocality]  <= 1'b0;
             end else if (data_io[5]) begin  // activeLocality
               if (addrLocality === activeLocality) begin
                 casez (requestUse)
