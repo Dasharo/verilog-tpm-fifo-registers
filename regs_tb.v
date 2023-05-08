@@ -32,6 +32,9 @@ module regs_tb ();
 
   task write_b (input [15:0] addr, input [7:0] data);
     begin
+      // XOR reduction of value containing at least one 'x', 'z' or '?' always returns 'x'
+      if (^addr === 1'bx)
+        $display("### Invalid bit value in address, missing '& `MASK_4B' in TB? @ %t", $realtime);
       @(posedge clk_i);
       addr_i = addr;
       data_reg = data;
@@ -51,6 +54,9 @@ module regs_tb ();
 
   task read_b (input [15:0] addr, output [7:0] data);
     begin
+      // XOR reduction of value containing at least one 'x', 'z' or '?' always returns 'x'
+      if (^addr === 1'bx)
+        $display("### Invalid bit value in address, missing '& `MASK_4B' in TB? @ %t", $realtime);
       @(posedge clk_i);
       addr_i = addr;
       @(negedge clk_i);
@@ -227,6 +233,9 @@ module regs_tb ();
     end
 
     request_locality (0);
+    // Enable localityChangeInt
+    write_w (locality_addr (0, `TPM_INT_ENABLE & `MASK_4B), 32'h80000004);
+    write_b (locality_addr (0, `TPM_INT_VECTOR), 8'h01);
 
     for (i = 0; i < 5; i++) begin : f1
       reg [7:0] exp;
@@ -239,6 +248,9 @@ module regs_tb ();
         $display("### Wrong TPM_ACCESS value (%h) for Locality %d @ %t", tmp_reg[7:0], i[2:0],
                  $realtime);
     end
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     // NOTE: this doesn't follow specification. According to the specification, if requestUse is 0,
     // it can be set to 1 regardless of activeLocality. It should be cleared when current locality
@@ -261,6 +273,9 @@ module regs_tb ();
 
     request_locality (1);
 
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
     for (i = 0; i < 5; i++) begin : f3
       reg [7:0] exp;
       case (i)
@@ -275,6 +290,9 @@ module regs_tb ();
     end
 
     request_locality (2);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f4
       reg [7:0] exp;
@@ -291,6 +309,9 @@ module regs_tb ();
 
     relinquish_locality (1);
 
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
     for (i = 0; i < 5; i++) begin : f5
       reg [7:0] exp;
       case (i)
@@ -304,7 +325,13 @@ module regs_tb ();
                  $realtime);
     end
 
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
     relinquish_locality (0);
+
+    if (!int)
+      $display("### Interrupt not asserted when it should @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f6
       reg [7:0] exp;
@@ -320,7 +347,19 @@ module regs_tb ();
 
     request_locality (0);
     request_locality (1);
+
+    if (!int)
+      $display("### Interrupt not asserted when it should @ %t", $realtime);
+
+    write_b (locality_addr (2, `TPM_INT_STATUS & `MASK_4B), 8'h04);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
     relinquish_locality (2);
+
+    if (!int)
+      $display("### Interrupt not asserted when it should @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f7
       reg [7:0] exp;
@@ -337,6 +376,14 @@ module regs_tb ();
 
     relinquish_locality (0);
 
+    if (!int)
+      $display("### Interrupt not asserted when it should @ %t", $realtime);
+
+    write_b (locality_addr (1, `TPM_INT_STATUS & `MASK_4B), 8'h04);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
     for (i = 0; i < 5; i++) begin : f8
       reg [7:0] exp;
       case (i)
@@ -349,11 +396,15 @@ module regs_tb ();
                  $realtime);
     end
 
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
     //////////////////////////////////////////////////////
     test = "seize locality";
 
     // TODO: add tests for other effects of seizing (TPM_STS, FIFO etc.)
     $display("Testing mechanisms for seizing locality");
+    request_locality (2);
     write_b (locality_addr (2, `TPM_ACCESS), 8'h08);
 
     for (i = 0; i < 5; i++) begin : f9
@@ -368,6 +419,14 @@ module regs_tb ();
         $display("### Wrong TPM_ACCESS value (%h) for Locality %d @ %t", tmp_reg[7:0], i[2:0],
                  $realtime);
     end
+
+    if (!int)
+      $display("### Interrupt not asserted when it should @ %t", $realtime);
+
+    write_b (locality_addr (2, `TPM_INT_STATUS & `MASK_4B), 8'h04);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     write_b (locality_addr (0, `TPM_ACCESS), 8'h08);
 
@@ -384,8 +443,14 @@ module regs_tb ();
                  $realtime);
     end
 
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
     relinquish_locality (2);
     write_b (locality_addr (0, `TPM_ACCESS), 8'h08);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f11
       reg [7:0] exp;
@@ -402,6 +467,9 @@ module regs_tb ();
 
     write_b (locality_addr (1, `TPM_ACCESS), 8'h10);
 
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
     for (i = 0; i < 5; i++) begin : f12
       reg [7:0] exp;
       case (i)
@@ -414,6 +482,7 @@ module regs_tb ();
                  $realtime);
     end
 
+    request_locality (1);
     write_b (locality_addr (1, `TPM_ACCESS), 8'h08);
 
     for (i = 0; i < 5; i++) begin : f13
@@ -428,6 +497,14 @@ module regs_tb ();
         $display("### Wrong TPM_ACCESS value (%h) for Locality %d @ %t", tmp_reg[7:0], i[2:0],
                  $realtime);
     end
+
+    if (!int)
+      $display("### Interrupt not asserted when it should @ %t", $realtime);
+
+    write_b (locality_addr (1, `TPM_INT_STATUS & `MASK_4B), 8'h04);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     write_b (locality_addr (2, `TPM_ACCESS), 8'h08);
 
@@ -444,6 +521,11 @@ module regs_tb ();
                  $realtime);
     end
 
+    // Interrupt shouldn't be signaled because Locality 2 didn't request for TPM so there was no
+    // requestUse --> activeLocality transition
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
     write_b (locality_addr (0, `TPM_ACCESS), 8'h10);
     write_b (locality_addr (1, `TPM_ACCESS), 8'h10);
     relinquish_locality (2);
@@ -458,6 +540,9 @@ module regs_tb ();
         $display("### Wrong TPM_ACCESS value (%h) for Locality %d @ %t", tmp_reg[7:0], i[2:0],
                  $realtime);
     end
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     //////////////////////////////////////////////////////
     test = "int prp loc -dly";

@@ -37,7 +37,6 @@ module regs_module (
   reg        wr_done_reg = 0;
 
   // Registers and fields same for every locality
-  reg [31:0] int_enable = 0;
   reg [ 7:0] int_vector = 0;
   reg [31:0] did_vid = `TwPM;
   reg        globalIntEnable = 0;
@@ -68,7 +67,7 @@ module regs_module (
             data <= {/* tpmRegValidSts */ 1'b1, /* Reserved */ 1'b0,
                      addrLocality === activeLocality ? 1'b1 : 1'b0,
                      beenSeized[addrLocality], /* Seize, write only */ 1'b0,
-                     /* pendingRequest */ (requestUse & ~(5'h01 << addrLocality)) !== 5'h00 ? 1'b1 : 1'b0,
+                     /* pendingRequest */ |(requestUse & ~(5'h01 << addrLocality)),
                      requestUse[addrLocality], /* tpmEstablishment, TODO */ 1'b1};
           end
           `TPM_INT_ENABLE: begin
@@ -152,12 +151,15 @@ module regs_module (
               // Specification doesn't explicitly say how to handle write to this bit if no locality
               // is set. From informative comment it can be conjectured that such case has lower
               // priority than Locality 0. As such, this case immediately sets active locality.
-              if (activeLocality === `LOCALITY_NONE)
+              if (activeLocality === `LOCALITY_NONE) begin
                 activeLocality <= addrLocality;
-              else if (addrLocality > activeLocality) begin
+              end else if (addrLocality > activeLocality) begin
                 activeLocality              <= addrLocality;
                 requestUse[addrLocality]    <= 1'b0;
                 beenSeized[activeLocality]  <= 1'b1;
+                if (localityChangeIntEnable & |int_vector & globalIntEnable & requestUse[addrLocality])
+                  localityChangeIntOccured  <= 1;
+                // TODO: abort the command (reset FIFO etc.)
               end
             end else if (data_io[4]) begin  // beenSeized
               beenSeized[addrLocality]  <= 1'b0;
@@ -167,22 +169,32 @@ module regs_module (
                   5'b1????: begin
                     activeLocality  <= 4'h4;
                     requestUse[4]   <= 1'b0;
+                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                      localityChangeIntOccured <= 1;
                   end
                   5'b01???: begin
                     activeLocality  <= 4'h3;
                     requestUse[3]   <= 1'b0;
+                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                      localityChangeIntOccured <= 1;
                   end
                   5'b001??: begin
                     activeLocality  <= 4'h2;
                     requestUse[2]   <= 1'b0;
+                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                      localityChangeIntOccured <= 1;
                   end
                   5'b0001?: begin
                     activeLocality  <= 4'h1;
                     requestUse[1]   <= 1'b0;
+                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                      localityChangeIntOccured <= 1;
                   end
                   5'b00001: begin
                     activeLocality  <= 4'h0;
                     requestUse[0]   <= 1'b0;
+                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                      localityChangeIntOccured <= 1;
                   end
                   5'b00000: activeLocality <= `LOCALITY_NONE;
                 endcase
