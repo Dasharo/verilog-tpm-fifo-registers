@@ -4,7 +4,32 @@
 
 `include "defines.v"
 
-`define LOCALITY_NONE	4'b1111
+`define LOCALITY_NONE	          4'b1111
+
+`define ST_IDLE                 5'b00000
+`define ST_READY                5'b00001
+
+`define ST_CMD_RECEPTION_ANY    5'b01???
+`define ST_CMD_RECEPTION_HDR0   5'b01000
+`define ST_CMD_RECEPTION_HDR1   5'b01001
+`define ST_CMD_RECEPTION_HDR2   5'b01010
+`define ST_CMD_RECEPTION_HDR3   5'b01011
+`define ST_CMD_RECEPTION_HDR4   5'b01100
+`define ST_CMD_RECEPTION_HDR5   5'b01101
+`define ST_CMD_RECEPTION        5'b01110
+`define ST_CMD_RECEPTION_LAST   5'b01111
+
+`define ST_CMD_EXECUTION        5'b00010
+
+`define ST_CMD_COMPLETION_ANY   5'b10???
+`define ST_CMD_COMPLETION_HDR0  5'b10000
+`define ST_CMD_COMPLETION_HDR1  5'b10001
+`define ST_CMD_COMPLETION_HDR2  5'b10010
+`define ST_CMD_COMPLETION_HDR3  5'b10011
+`define ST_CMD_COMPLETION_HDR4  5'b10100
+`define ST_CMD_COMPLETION_HDR5  5'b10101
+`define ST_CMD_COMPLETION       5'b10110
+`define ST_CMD_COMPLETION_LAST  5'b10111
 
 module regs_module (
     clk_i,
@@ -35,6 +60,7 @@ module regs_module (
   reg [ 7:0] data = 0;
   reg        driving_data = 0;
   reg        wr_done_reg = 0;
+  reg [ 4:0] state = `ST_IDLE;
 
   // Registers and fields same for every locality
   reg [ 7:0] int_vector = 0;
@@ -48,6 +74,10 @@ module regs_module (
   reg        localityChangeIntOccured = 0;
   reg        stsValidIntOccured = 0;
   reg        dataAvailIntOccured = 0;
+  reg        commandReady = 0;
+  reg        dataAvail = 0;
+  reg        Expect = 0;
+  reg        tpmEstablishment = 1;  // TODO: how to make this bit survive resets and power cycles?
 
   // Per-locality fields
   reg  [3:0] activeLocality = `LOCALITY_NONE;
@@ -68,7 +98,7 @@ module regs_module (
                      addrLocality === activeLocality ? 1'b1 : 1'b0,
                      beenSeized[addrLocality], /* Seize, write only */ 1'b0,
                      /* pendingRequest */ |(requestUse & ~(5'h01 << addrLocality)),
-                     requestUse[addrLocality], /* tpmEstablishment, TODO */ 1'b1};
+                     requestUse[addrLocality], tpmEstablishment};
           end
           `TPM_INT_ENABLE: begin
             case (addr_i[1:0])
@@ -97,7 +127,21 @@ module regs_module (
               2'b11:        data <= 8'h30;
             endcase
           end
-          // TPM_STS - TODO
+          `TPM_STS: begin
+            if (activeLocality === addrLocality) begin
+              case (addr_i[1:0])
+                2'b00:        data <= {/* stsValid */ 1'b1, commandReady,
+                                       /* tpmGo, write only */ 1'b0, dataAvail, Expect,
+                                       /* selfTestDone, TODO */ 1'b0,
+                                       /* responseRetry, write only */ 1'b0, /* reserved */ 1'b0};
+                2'b01:        data <= 8'h01;  // burstCount[ 7:0]
+                2'b10:        data <= 8'h00;  // burstCount[15:8]
+                2'b11:        data <= {/* reserved */ 4'h0, /* tpmFamily = TPM2.0 */ 2'b01,
+                                       /* resetEstablishmentBit - write only */ 1'b0,
+                                       /* commandCancel - write only */ 1'b0};
+              endcase
+            end else          data <= 8'hFF;
+          end
           // TPM_DATA_FIFO, TPM_XDATA_FIFO - TODO
           `TPM_INTERFACE_ID: begin
             case (addr_i[1:0])
@@ -198,6 +242,7 @@ module regs_module (
                   end
                   5'b00000: activeLocality <= `LOCALITY_NONE;
                 endcase
+                // TODO: abort the command (reset FIFO etc.)
               end else if (requestUse[addrLocality])
                 requestUse[addrLocality]  <= 1'b0;
             end
@@ -231,7 +276,56 @@ module regs_module (
             end
           end
           // TPM_INTF_CAPABILITY - read-only register
-          // TPM_STS - TODO
+          `TPM_STS: begin
+            if (activeLocality === addrLocality) begin
+              case (addr_i[1:0])
+                2'b00: casez (state)
+                  `ST_IDLE:
+                    if (data_io[6]) begin                     // commandReady
+                      state         <= `ST_READY;
+                      Expect        <= 1;
+                      commandReady  <= 1;
+                    end
+                  // No state changes on writes to this part of register in ST_READY
+                  `ST_CMD_RECEPTION_LAST:
+                    if (data_io[6]) begin                     // commandReady
+                      state <= `ST_IDLE;
+                      // TODO: abort the command (reset FIFO etc.)
+                    end else if (data_io[5]) begin            // tpmGo
+                      state <= `ST_CMD_EXECUTION;
+                      // TODO: signal MCU
+                    end
+                  `ST_CMD_RECEPTION_ANY:
+                    if (data_io[6]) begin                     // commandReady
+                      state   <= `ST_IDLE;
+                      Expect  <= 0;
+                      // TODO: abort the command (reset FIFO etc.)
+                    end
+                  `ST_CMD_EXECUTION:
+                    if (data_io[6]) begin                     // commandReady
+                      state <= `ST_IDLE;
+                      // TODO: abort the command (reset FIFO etc.)
+                      // TODO: signal MCU
+                    end
+                  `ST_CMD_COMPLETION_ANY:
+                    if (data_io[6]) begin                     // commandReady
+                      state <= `ST_IDLE;
+                      // TODO: abort the command (reset FIFO etc.)
+                    end else if (data_io[1]) begin            // responseRetry
+                      state     <= `ST_CMD_COMPLETION_HDR0;
+                      dataAvail <= 1;
+                      // TODO: reset FIFO pointer
+                    end
+                endcase   // state
+                2'b11:
+                  if (data_io[1]) begin                       // resetEstablishmentBit
+                    if (addrLocality === 4'h3 || addrLocality === 4'h4)
+                      if (state === `ST_READY || state === `ST_IDLE)
+                        tpmEstablishment <= 1;
+                  end // TODO: consider supporting optional commandCancel at data_io[0]
+              endcase   // addr_i[1:0]
+            end       // if (activeLocality === addrLocality)
+          end
           // TPM_DATA_FIFO, TPM_XDATA_FIFO - TODO
           // TPM_INTERFACE_ID - writable bits are for switching between CRB and TIS, not supported
           // TPM_DID_VID, TPM_RID - read-only registers
