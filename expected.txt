@@ -51,7 +51,7 @@ ff
 ff
 // 0x00000030
 00    // TPM_INTERFACE_ID (4B)
-20
+21
 00
 00
 ff

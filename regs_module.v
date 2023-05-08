@@ -105,8 +105,7 @@ module regs_module (
               // FIFO interface as defined in PTP for TPM 2.0
               2'b00:        data <= 8'h00;
               // TIS supported, CRB not supported, Locality 0 only
-              // TODO: change to 8'h21 when all 5 localities are supported
-              2'b01:        data <= 8'h20;
+              2'b01:        data <= 8'h21;
               // We don't support changes between TIS and CRB
               default:      data <= 8'h00;
             endcase
