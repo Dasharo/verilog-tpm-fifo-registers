@@ -107,6 +107,52 @@ module regs_tb ();
     write_b (locality_addr (locality, `TPM_ACCESS), 8'h20);
   endtask
 
+  task write_cmd_1B (input integer locality, input integer len);
+    integer i;
+    for (i = 0; i < len; i++)
+      write_b (locality_addr (locality, `TPM_DATA_FIFO & `MASK_4B), cmd[i]);
+  endtask
+
+  task write_cmd_modulo (input integer locality, input integer len);
+    integer i;
+    begin
+      for (i = 0; i < len/4; i++)
+        write_w (locality_addr (locality, `TPM_DATA_FIFO & `MASK_4B),
+                 {cmd[i*4], cmd[i*4+1], cmd[i*4+2], cmd[i*4+3]});
+      for (i = i*4; i < len; i++)
+        write_b (locality_addr (locality, (`TPM_DATA_FIFO & `MASK_4B) + i%4), cmd[i]);
+    end
+  endtask
+
+  task load_cmd_from_file (input [50*8:1] name);
+    reg [100*8:1] path_name;
+    reg [4*8:1] len_str;
+    integer rc;
+    integer len;
+    begin
+      $sformat(path_name, "tb_data/%0s", name);
+      // Files have form "<name>_cmd_<len>.txt", where <len> is always 4 hexadecimal digits
+      len_str = path_name[93*8:4*8+1];
+      rc = $sscanf(len_str, "%h", len);
+      $readmemh(path_name, cmd, 0, len - 1);
+    end
+  endtask
+
+  task load_rsp_from_file (input [50*8:1] name);
+    reg [100*8:1] path_name;
+    reg [4*8:1] len_str;
+    integer rc;
+    integer len;
+    begin
+      $sformat(path_name, "tb_data/%0s", name);
+      // Files have form "<name>_rsp_<len>.txt", where <len> is always 4 hexadecimal digits
+      len_str = path_name[93*8:4*8+1];
+      rc = $sscanf(len_str, "%h", len);
+      // Response is loaded to RAM and compared against data read by module to rsp
+      $readmemh(path_name, RAM, 0, len - 1);
+    end
+  endtask
+
   initial begin
     clk_i = 1'b1;
     forever #20 clk_i = ~clk_i;
@@ -690,6 +736,8 @@ module regs_tb ();
     //////////////////////////////////////////////////////
 
     test = "end";
+
+    load_cmd_from_file ("StartAuthSession_cmd_003b.txt");
 
     #3000;
     $stop;
