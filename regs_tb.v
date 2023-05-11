@@ -22,10 +22,24 @@ module regs_tb ();
   wire [ 3:0] IRQn;           // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
   wire        int;            // Whether interrupt should be signaled to host, active high
 
+  wire        exec;           // Signal that RAM has command that should be executed
+  reg         complete;       // Signal that command execution is done and RAM holds the response
+  wire        abort;          // Information to MCU that it should cease executing current command
+
+  wire [10:0] RAM_addr;       // 2KiB address space, TODO: make it configurable
+  wire [ 7:0] RAM_data;       // 1 byte of data to/from RAM
+  wire        RAM_rd;         // Signal to memory to do a read
+  wire        RAM_wr;         // Signal to memory to do a write
+
   integer     delay = 0, i = 0;
   reg  [ 7:0] data_reg;
   reg  [31:0] tmp_reg;
   reg  [ 7:0] expected [0:4095];
+  reg  [ 7:0] cmd [0:2047];
+  reg  [ 7:0] rsp [0:2047];
+  reg  [ 7:0] RAM [0:2047];
+  reg  [ 7:0] RAM_reg;
+
   reg [127:0] test = "begin"; // For easier navigation in gtkwave
 
   // verilog_format: on
@@ -112,7 +126,7 @@ module regs_tb ();
     tmp_reg = 0;
     #100;
 
-    $readmemh("expected.txt", expected);
+    $readmemh("tb_data/expected.txt", expected);
 
     //////////////////////////////////////////////////////
     test = "read w/o delay";
@@ -682,7 +696,15 @@ module regs_tb ();
     $finish;
   end
 
+  always @(negedge clk_i) begin
+    if (RAM_wr)
+      RAM[RAM_addr] <= RAM_data;
+    else if (RAM_rd)
+      RAM_reg       <= RAM[RAM_addr];
+  end
+
   assign data_io = data_wr ? data_reg : 8'hzz;
+  assign RAM_data = RAM_rd ? RAM_reg : 8'hzz;
 
   // LPC Peripheral instantiation
   regs_module regs_inst (
@@ -696,7 +718,14 @@ module regs_tb ();
       .data_rd(data_rd),
       .data_req(data_req),
       .irq_num(IRQn),
-      .interrupt(int)
+      .interrupt(int),
+      .exec(exec),
+      .complete(complete),
+      .abort(abort),
+      .RAM_addr(RAM_addr),
+      .RAM_data(RAM_data),
+      .RAM_rd(RAM_rd),
+      .RAM_wr(RAM_wr)
   );
 
 endmodule
