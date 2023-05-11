@@ -116,7 +116,7 @@ module regs_module
     begin
       abort_reg     <= 1;
       exec_reg      <= 0;
-      FIFO_offset   <= 0;
+      FIFO_offset   <= ~0;  // There is a delay on write after increment, so this has to point to -1
       FIFO_left     <= 0;
       state         <= `ST_IDLE;
       Expect        <= 0;
@@ -185,48 +185,45 @@ module regs_module
           end
           `TPM_DATA_FIFO, `TPM_XDATA_FIFO: begin
             if (activeLocality === addrLocality && dataAvail) begin
-              FIFO_offset <= FIFO_offset + 1;
               // Assuming that data from RAM is already available after half clock cycle
+              data        <= RAM_data;
+              FIFO_offset <= FIFO_offset + 1;
               case (state)
                 `ST_CMD_COMPLETION_HDR0: begin
                   // Always 8'h80 for valid commands
-                  data  <= RAM_data;
                   state <= `ST_CMD_COMPLETION_HDR1;
                 end
                 `ST_CMD_COMPLETION_HDR1: begin
                   // Always 8'h01 or 8'h02 for valid commands
-                  data  <= RAM_data;
                   state <= `ST_CMD_COMPLETION_HDR2;
                 end
                 `ST_CMD_COMPLETION_HDR2: begin
-                  data                <= RAM_data;
                   FIFO_left[24 +: 8]  <= RAM_data;
                   state               <= `ST_CMD_COMPLETION_HDR3;
                 end
                 `ST_CMD_COMPLETION_HDR3: begin
-                  data                <= RAM_data;
                   FIFO_left[16 +: 8]  <= RAM_data;
                   state               <= `ST_CMD_COMPLETION_HDR4;
                 end
                 `ST_CMD_COMPLETION_HDR4: begin
-                  data                <= RAM_data;
                   FIFO_left[ 8 +: 8]  <= RAM_data;
                   state               <= `ST_CMD_COMPLETION_HDR5;
                 end
                 `ST_CMD_COMPLETION_HDR5: begin
-                  data      <= RAM_data;
                   FIFO_left <= {FIFO_left[31:8], RAM_data} - 7;
                   state     <= `ST_CMD_COMPLETION;
                 end
                 `ST_CMD_COMPLETION: begin
-                  data      <= RAM_data;
                   FIFO_left <= FIFO_left - 1;
                   if (!FIFO_left) begin
                     state     <= `ST_CMD_COMPLETION_LAST;
                     dataAvail <= 0;
                   end
                 end
-                default: FIFO_offset <= FIFO_offset;  // Skip incrementation if read isn't valid
+                default: begin
+                  FIFO_offset <= FIFO_offset;  // Skip incrementation if read isn't valid
+                  data        <= 8'hFF;
+                end
               endcase
             end
           end
@@ -416,7 +413,52 @@ module regs_module
               endcase   // addr_i[1:0]
             end       // if (activeLocality === addrLocality)
           end
-          // TPM_DATA_FIFO, TPM_XDATA_FIFO - TODO
+          `TPM_DATA_FIFO, `TPM_XDATA_FIFO: begin
+            // TODO: handle TPM_HASH_DATA
+            if ((activeLocality === addrLocality) && Expect) begin
+              FIFO_offset   <= FIFO_offset + 1;
+              RAM_data_reg  <= data_io;
+              RAM_wr_reg    <= 1;
+              case (state)
+                `ST_CMD_RECEPTION_HDR0, `ST_READY: begin
+                  // Always 8'h80 for valid commands
+                  state         <= `ST_CMD_RECEPTION_HDR1;
+                  commandReady  <= 0;
+                end
+                `ST_CMD_RECEPTION_HDR1: begin
+                  // Always 8'h01 or 8'h02 for valid commands
+                  state <= `ST_CMD_RECEPTION_HDR2;
+                end
+                `ST_CMD_RECEPTION_HDR2: begin
+                  FIFO_left[24 +: 8]  <= data_io;
+                  state               <= `ST_CMD_RECEPTION_HDR3;
+                end
+                `ST_CMD_RECEPTION_HDR3: begin
+                  FIFO_left[16 +: 8]  <= data_io;
+                  state               <= `ST_CMD_RECEPTION_HDR4;
+                end
+                `ST_CMD_RECEPTION_HDR4: begin
+                  FIFO_left[ 8 +: 8]  <= data_io;
+                  state               <= `ST_CMD_RECEPTION_HDR5;
+                end
+                `ST_CMD_RECEPTION_HDR5: begin
+                  FIFO_left <= {FIFO_left[31:8], data_io} - 7;
+                  state     <= `ST_CMD_RECEPTION;
+                end
+                `ST_CMD_RECEPTION: begin
+                  FIFO_left <= FIFO_left - 1;
+                  if (!FIFO_left) begin
+                    state   <= `ST_CMD_RECEPTION_LAST;
+                    Expect  <= 0;
+                  end
+                end
+                default: begin
+                  FIFO_offset <= FIFO_offset;  // Skip incrementation if write isn't valid
+                  RAM_wr_reg  <= 0;
+                end
+              endcase
+            end
+          end
           // TPM_INTERFACE_ID - writable bits are for switching between CRB and TIS, not supported
           // TPM_DID_VID, TPM_RID - read-only registers
         endcase
