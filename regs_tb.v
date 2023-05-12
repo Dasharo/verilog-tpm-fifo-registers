@@ -31,7 +31,7 @@ module regs_tb ();
   wire        RAM_rd;         // Signal to memory to do a read
   wire        RAM_wr;         // Signal to memory to do a write
 
-  integer     delay = 0, i = 0;
+  integer     delay = 0, i = 0, len = 0;
   reg  [ 7:0] data_reg;
   reg  [31:0] tmp_reg;
   reg  [ 7:0] expected [0:4095];
@@ -118,17 +118,33 @@ module regs_tb ();
     begin
       for (i = 0; i < len/4; i++)
         write_w (locality_addr (locality, `TPM_DATA_FIFO & `MASK_4B),
-                 {cmd[i*4], cmd[i*4+1], cmd[i*4+2], cmd[i*4+3]});
+                 {cmd[i*4+3], cmd[i*4+2], cmd[i*4+1], cmd[i*4+0]});
       for (i = i*4; i < len; i++)
         write_b (locality_addr (locality, (`TPM_DATA_FIFO & `MASK_4B) + i%4), cmd[i]);
     end
   endtask
 
-  task load_cmd_from_file (input [50*8:1] name);
+  task read_rsp_1B (input integer locality, input integer len);
+    integer i;
+    for (i = 0; i < len; i++)
+      read_b (locality_addr (locality, `TPM_DATA_FIFO & `MASK_4B), rsp[i]);
+  endtask
+
+  task read_rsp_modulo (input integer locality, input integer len);
+    integer i;
+    begin
+      for (i = 0; i < len/4; i++)
+        read_w (locality_addr (locality, `TPM_DATA_FIFO & `MASK_4B),
+                {rsp[i*4+3], rsp[i*4+2], rsp[i*4+1], rsp[i*4+0]});
+      for (i = i*4; i < len; i++)
+        read_b (locality_addr (locality, (`TPM_DATA_FIFO & `MASK_4B) + i%4), rsp[i]);
+    end
+  endtask
+
+  task load_cmd_from_file (input [50*8:1] name, output integer len);
     reg [100*8:1] path_name;
     reg [4*8:1] len_str;
     integer rc;
-    integer len;
     begin
       $sformat(path_name, "tb_data/%0s", name);
       // Files have form "<name>_cmd_<len>.txt", where <len> is always 4 hexadecimal digits
@@ -138,11 +154,10 @@ module regs_tb ();
     end
   endtask
 
-  task load_rsp_from_file (input [50*8:1] name);
+  task load_rsp_from_file (input [50*8:1] name, output integer len);
     reg [100*8:1] path_name;
     reg [4*8:1] len_str;
     integer rc;
-    integer len;
     begin
       $sformat(path_name, "tb_data/%0s", name);
       // Files have form "<name>_rsp_<len>.txt", where <len> is always 4 hexadecimal digits
@@ -165,11 +180,13 @@ module regs_tb ();
     $timeformat(-9, 0, " ns", 10);
 
     #100;
-    addr_i = 0;
-    data_reg = 0;
-    data_wr = 0;
-    data_req = 0;
-    tmp_reg = 0;
+    addr_i    = 0;
+    data_reg  = 0;
+    data_wr   = 0;
+    data_req  = 0;
+    tmp_reg   = 0;
+    complete  = 0;
+    RAM_reg   = 0;
     #100;
 
     $readmemh("tb_data/expected.txt", expected);
@@ -733,11 +750,259 @@ module regs_tb ();
     if (tmp_reg[7:0] !== 8'h00)
       $display("### Reserved bits in TPM_INT_VECTOR modified @ %t", IRQn, $realtime);
 
+    delay = 0;
+
+    //////////////////////////////////////////////////////
+
+    test = "cmd rsp full 1B";
+
+    $display("Testing command/response exchange and TPM state machine - basic");
+
+    request_locality (0);
+
+    // Disable localityChangeInt, enable dataAvailInt
+    write_w (locality_addr (0, `TPM_INT_ENABLE & `MASK_4B), 32'h80000001);
+    write_b (locality_addr (0, `TPM_INT_VECTOR), 8'h01);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
+    load_cmd_from_file ("StartAuthSession_cmd_003b.txt", len);
+
+    // TODO: check state
+
+    // Request to send a command - commandReady
+    write_b (locality_addr (0, `TPM_STS & `MASK_4B), 8'h40);
+
+    // TODO: split into len-1,1 and check state in between
+
+    write_cmd_1B (0, len);
+
+    // TODO: check state
+
+    // Send request to execute command - tpmGo
+    write_b (locality_addr (0, `TPM_STS & `MASK_4B), 8'h20);
+
+    for (i = 0; i < len; i++) begin
+      if (RAM[i] !== cmd[i])
+        $display("### Wrong command byte sent to RAM (expected %h, got %h, i = %h) @ %t", cmd[i],
+                 RAM[i], i[15:0], $realtime);
+    end
+
+    // TODO: check state
+
+    if (!exec)
+      $display("### TPM didn't send 'exec' signal @ %t", $realtime);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
+    load_rsp_from_file ("StartAuthSession_rsp_0030.txt", len);
+
+    #5 complete = 1;
+
+    // TODO: check state
+
+    // Give module some time to signal the interrupt
+    @(posedge clk_i);
+    @(negedge clk_i);
+    if (!int)
+      $display("### Interrupt not asserted when it should @ %t", $realtime);
+
+    if (exec)
+      $display("### TPM didn't stop driving 'exec' signal @ %t", $realtime);
+
+    complete = 0;
+
+    // TODO: check state
+
+    read_rsp_1B (0, len);
+
+    // TODO: check state
+
+    for (i = 0; i < len; i++) begin
+      if (RAM[i] !== rsp[i])
+        $display("### Wrong response read from RAM (expected %h, got %h, i = %h) @ %t", RAM[i],
+                 rsp[i], i[15:0], $realtime);
+    end
+
+    // Clear the interrupt
+    write_b (locality_addr (0, `TPM_INT_STATUS & `MASK_4B), 8'h01);
+
+    // Tell TPM that we're done with this command - commandReady
+    write_b (locality_addr (0, `TPM_STS & `MASK_4B), 8'h40);
+
+    // TODO: check state
+
+    relinquish_locality (0);
+
+    //////////////////////////////////////////////////////
+
+    test = "cmd rsp more";
+
+    // Changes w.r.t. the above:
+    // - different locality
+    // - different command/response examples
+    // - FIFO written and read in modulo 4 increasing addresses
+    // - len-1 bytes written/read, status checked, then last byte sent
+    // - interrupt acknowledged right after received, before reading response
+    // - more bytes than expected read from FIFO
+    // - responseRetry used after completion, before transition to idle
+    // - trying to read the FIFO after switching locality
+
+    $display("Testing command/response exchange and TPM state machine - advanced");
+
+    request_locality (1);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
+    load_cmd_from_file ("CreatePrimary_cmd_0083.txt", len);
+
+    // TODO: check state
+
+    // Request to send a command - commandReady
+    write_b (locality_addr (1, `TPM_STS & `MASK_4B), 8'h40);
+
+    // TODO: check state
+
+    write_cmd_modulo (1, len-1);
+
+    // TODO: check state
+
+    write_b (locality_addr (1, `TPM_DATA_FIFO & `MASK_4B), cmd[len-1]);
+
+    // TODO: check state
+
+    // Send request to execute command - tpmGo
+    write_b (locality_addr (1, `TPM_STS & `MASK_4B), 8'h20);
+
+    for (i = 0; i < len; i++) begin
+      if (RAM[i] !== cmd[i])
+        $display("### Wrong command byte sent to RAM (expected %h, got %h, i = %h) @ %t", cmd[i],
+                 RAM[i], i[15:0], $realtime);
+    end
+
+    // TODO: check state
+
+    if (!exec)
+      $display("### TPM didn't send 'exec' signal @ %t", $realtime);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
+    load_rsp_from_file ("CreatePrimary_rsp_000a.txt", len);
+
+    #5 complete = 1;
+
+    // TODO: check state
+
+    // Give module some time to signal the interrupt
+    @(posedge clk_i);
+    @(negedge clk_i);
+    if (!int)
+      $display("### Interrupt not asserted when it should @ %t", $realtime);
+
+    if (exec)
+      $display("### TPM didn't stop driving 'exec' signal @ %t", $realtime);
+
+    complete = 0;
+
+    // Clear the interrupt
+    write_b (locality_addr (1, `TPM_INT_STATUS & `MASK_4B), 8'h01);
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
+    // TODO: check state
+
+    read_rsp_modulo (1, len-1);
+
+    // TODO: check state
+
+    read_b (locality_addr (1, `TPM_DATA_FIFO & `MASK_4B), rsp[len-1]);
+
+    // TODO: check state
+
+    for (i = 0; i < len; i++) begin
+      if (RAM[i] !== rsp[i])
+        $display("### Wrong response read from RAM (expected %h, got %h, i = %h) @ %t", RAM[i],
+                 rsp[i], i[15:0], $realtime);
+    end
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
+    // Read some more bytes
+    for (i = 0; i < 20; i++) begin
+      read_b (locality_addr (1, `TPM_DATA_FIFO & `MASK_4B), tmp_reg[7:0]);
+      if (tmp_reg[7:0] !== 8'hff)
+        $display("### Data read from beyond FIFO (%h) @ %t", tmp_reg[7:0], $realtime);
+    end
+
+    // Reset rsp and try again - responseRetry
+    for (i = 0; i < len; i++)
+      rsp[i] = 8'hff;
+    write_b (locality_addr (1, `TPM_STS & `MASK_4B), 8'h02);
+
+    // dataAvail transitioned 0->1, so interrupt should be signaled
+    if (!int)
+      $display("### Interrupt not asserted when it should @ %t", $realtime);
+
+    // Clear the interrupt
+    write_b (locality_addr (1, `TPM_INT_STATUS & `MASK_4B), 8'h01);
+
+    // Read just a part of the response, leave something for next tests
+    read_rsp_modulo (1, len/2);
+    for (i = 0; i < len/2; i++) begin
+      if (RAM[i] !== rsp[i])
+        $display("### Wrong response read from RAM (expected %h, got %h, i = %h) @ %t", RAM[i],
+                 rsp[i], i[15:0], $realtime);
+    end
+
+    // Reset rsp and try again - responseRetry
+    for (i = 0; i < len; i++)
+      rsp[i] = 8'hff;
+
+    write_b (locality_addr (1, `TPM_STS & `MASK_4B), 8'h02);
+    // Read just a part of the response, leave something for next tests
+    read_rsp_modulo (1, len/2);
+    for (i = 0; i < len/2; i++) begin
+      if (RAM[i] !== rsp[i])
+        $display("### Wrong response read from RAM (expected %h, got %h, i = %h) @ %t", RAM[i],
+                 rsp[i], i[15:0], $realtime);
+    end
+
+    // Clear the interrupt
+    write_b (locality_addr (1, `TPM_INT_STATUS & `MASK_4B), 8'h01);
+
+    // Seize locality
+    write_b (locality_addr (2, `TPM_ACCESS), 8'h08);
+
+    for (i = 0; i < 20; i++) begin
+      read_b (locality_addr (2, `TPM_DATA_FIFO & `MASK_4B), tmp_reg[7:0]);
+      if (tmp_reg[7:0] !== 8'hff)
+        $display("### FIFO leaked to different locality (%h) @ %t", tmp_reg[7:0], $realtime);
+    end
+
+    // Try again after responseRetry
+    write_b (locality_addr (2, `TPM_STS & `MASK_4B), 8'h02);
+    for (i = 0; i < 20; i++) begin
+      read_b (locality_addr (2, `TPM_DATA_FIFO & `MASK_4B), tmp_reg[7:0]);
+      if (tmp_reg[7:0] !== 8'hff)
+        $display("### FIFO leaked to different locality (%h) @ %t", tmp_reg[7:0], $realtime);
+    end
+
+    if (int)
+      $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
+
+    // TODO: check state
+
+    relinquish_locality (2);
+
     //////////////////////////////////////////////////////
 
     test = "end";
-
-    load_cmd_from_file ("StartAuthSession_cmd_003b.txt");
 
     #3000;
     $stop;
@@ -767,6 +1032,7 @@ module regs_tb ();
       .data_req(data_req),
       .irq_num(IRQn),
       .interrupt(int),
+      // MCU interface
       .exec(exec),
       .complete(complete),
       .abort(abort),
