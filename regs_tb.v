@@ -187,7 +187,7 @@ module regs_tb ();
     end
 
     for (i = 0; i < 4096; i++) begin
-      read_b (locality_addr (1, i), tmp_reg[7:0]);
+      read_b (locality_addr (4, i), tmp_reg[7:0]);
       if (tmp_reg[7:0] !== expected[i])
         $display("### Wrong value at 0x%0h (got 0x%h, expected 0x%h)", i[15:0], tmp_reg[7:0],
                  expected[i]);
@@ -213,8 +213,8 @@ module regs_tb ();
       // No break/continue until SystemVerilog...
       if (((i & `MASK_4B) !== (`TPM_DATA_FIFO & `MASK_4B)) &&
           ((i & `MASK_4B) !== (`TPM_XDATA_FIFO & `MASK_4B))) begin
-        write_b (locality_addr (1, i), 8'h00);
-        read_b (locality_addr (1, i), tmp_reg[7:0]);
+        write_b (locality_addr (4, i), 8'h00);
+        read_b (locality_addr (4, i), tmp_reg[7:0]);
         if (tmp_reg[7:0] !== expected[i])
           $display("### Wrong value at 0x%0h (got 0x%h, expected 0x%h)", i[15:0], tmp_reg[7:0],
                    expected[i]);
