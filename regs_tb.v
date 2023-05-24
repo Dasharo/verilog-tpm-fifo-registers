@@ -31,13 +31,14 @@ module regs_tb ();
   wire        RAM_rd;         // Signal to memory to do a read
   wire        RAM_wr;         // Signal to memory to do a write
 
+  parameter   max_cmd_rsp_size = 2048;
   integer     delay = 0, i = 0, len = 0;
   reg  [ 7:0] data_reg;
   reg  [31:0] tmp_reg;
   reg  [ 7:0] expected [0:4095];
-  reg  [ 7:0] cmd [0:2047];
-  reg  [ 7:0] rsp [0:2047];
-  reg  [ 7:0] RAM [0:2047];
+  reg  [ 7:0] cmd [0:max_cmd_rsp_size-1];
+  reg  [ 7:0] rsp [0:max_cmd_rsp_size-1];
+  reg  [ 7:0] RAM [0:max_cmd_rsp_size-1];
   reg  [ 7:0] RAM_reg;
 
   reg [127:0] test = "begin"; // For easier navigation in gtkwave
