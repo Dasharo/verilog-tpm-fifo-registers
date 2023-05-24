@@ -2,6 +2,13 @@
 
 Verilog module implementing TPM FIFO register space and locality state machine
 
+## Module diagram
+
+![Module diagram](regs_module.svg)
+
+Inputs are on the left side, outputs and bi-directional wires on the right.
+Module parameter is in separate box at the top.
+
 ## Simulation
 
 ### Prerequisites
