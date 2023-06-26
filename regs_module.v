@@ -131,7 +131,14 @@ module regs_module
     reg [3:0] addrLocality;
     addrLocality = addr_i[15:12];
     RAM_wr_reg   <= 0;
-    if (data_req && ~data_rd) begin
+
+    if (exec_reg & complete) begin
+      exec_reg  <= 0;
+      state     <= `ST_CMD_COMPLETION_HDR0;
+      dataAvail <= 1;
+      if (globalIntEnable & |int_vector & dataAvailIntEnable & ~dataAvail)
+        dataAvailIntOccured <= 1;
+    end else if (data_req && ~data_rd) begin
       data_o <= 8'hFF;
       // Parse address and prepare proper data
       if (addrLocality < 4'h5) begin   // Locality 0-4
@@ -468,17 +475,6 @@ module regs_module
       wr_done_reg <= 1;
     end else if (wr_done && ~data_wr) begin
       wr_done_reg <= 0;
-    end
-  end
-
-  // TODO: check if this is synthezable
-  always @(posedge clk_i) begin
-    if (exec_reg & complete) begin
-      exec_reg  <= 0;
-      state     <= `ST_CMD_COMPLETION_HDR0;
-      dataAvail <= 1;
-      if (globalIntEnable & |int_vector & dataAvailIntEnable & ~dataAvail)
-        dataAvailIntOccured <= 1;
     end
   end
 
