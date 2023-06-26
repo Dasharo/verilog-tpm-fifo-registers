@@ -35,7 +35,8 @@ module regs_module
 #(parameter RAM_ADDR_WIDTH=11)
 (
     clk_i,
-    data_io,
+    data_i,
+    data_o,
     addr_i,
     data_wr,
     wr_done,
@@ -47,7 +48,8 @@ module regs_module
     complete,
     abort,
     RAM_addr,
-    RAM_data,
+    RAM_data_rd,
+    RAM_data_wr,
     RAM_rd,
     RAM_wr
 );
@@ -55,7 +57,8 @@ module regs_module
   //# {{LPC/SPI module interface}}
   input  wire        clk_i;     // Clock of host interface (LPC or SPI) to counteract hazards
                                 // between data_io and wr_done/data_rd signals
-  inout  wire [ 7:0] data_io;   // Data received (I/O Write) or to be sent (I/O Read) to host
+  input  wire [ 7:0] data_i;    // Data received (I/O Write) from host
+  output reg  [ 7:0] data_o;    // Data to be sent (I/O Read) to host
   input  wire [15:0] addr_i;    // 16-bit LPC Peripheral Address
   input  wire        data_wr;   // Signal to data provider that data_io has valid write data
   output wire        wr_done;   // Signal from data provider that data_io has been read
@@ -70,12 +73,12 @@ module regs_module
   output wire        abort;     // Information to MCU that it should cease executing current command
   //# {{RAM interface}}
   output wire [RAM_ADDR_WIDTH-1:0] RAM_addr;  // Command/response address space size, default 2KiB
-  inout  wire [ 7:0] RAM_data;  // 1 byte of data to/from RAM
+  input  wire [ 7:0] RAM_data_rd; // 1 byte of data from RAM
+  output reg  [ 7:0] RAM_data_wr; // 1 byte of data to RAM
   output wire        RAM_rd;    // Signal to memory to do a read
   output wire        RAM_wr;    // Signal to memory to do a write
 
   // Internal signals
-  reg [ 7:0] data = 0;
   reg        driving_data = 0;
   reg        wr_done_reg = 0;
   reg [ 4:0] state = `ST_IDLE;
@@ -83,7 +86,6 @@ module regs_module
   reg        exec_reg = 0;
   reg [RAM_ADDR_WIDTH-1:0] FIFO_offset = 0;
   reg        RAM_wr_reg = 0;
-  reg [ 7:0] RAM_data_reg = 0;
   reg [31:0] FIFO_left = 0;
 
   // Registers and fields same for every locality
@@ -130,12 +132,12 @@ module regs_module
     addrLocality = addr_i[15:12];
     RAM_wr_reg   <= 0;
     if (data_req && ~data_rd) begin
-      data <= 8'hFF;
+      data_o <= 8'hFF;
       // Parse address and prepare proper data
       if (addrLocality < 4'h5) begin   // Locality 0-4
         casez (addr_i[11:0])
           `TPM_ACCESS: begin
-            data <= {/* tpmRegValidSts */ 1'b1, /* Reserved */ 1'b0,
+            data_o <= {/* tpmRegValidSts */ 1'b1, /* Reserved */ 1'b0,
                      addrLocality === activeLocality ? 1'b1 : 1'b0,
                      beenSeized[addrLocality], /* Seize, write only */ 1'b0,
                      /* pendingRequest */ |(requestUse & ~(5'h01 << addrLocality)),
@@ -143,41 +145,41 @@ module regs_module
           end
           `TPM_INT_ENABLE: begin
             case (addr_i[1:0])
-              2'b00:        data <= {commandReadyEnable, 2'b00, /* typePolarity = low level */ 2'b01,
-                                     localityChangeIntEnable, stsValidIntEnable, dataAvailIntEnable};
-              2'b11:        data <= {globalIntEnable, 7'h00};
-              default:      data <= 8'h00;
+              2'b00:        data_o <= {commandReadyEnable, 2'b00, /* typePolarity = low level */ 2'b01,
+                                       localityChangeIntEnable, stsValidIntEnable, dataAvailIntEnable};
+              2'b11:        data_o <= {globalIntEnable, 7'h00};
+              default:      data_o <= 8'h00;
             endcase
           end
-          `TPM_INT_VECTOR:  data <= {4'h0, int_vector};
+          `TPM_INT_VECTOR:  data_o <= {4'h0, int_vector};
           `TPM_INT_STATUS: begin
             case (addr_i[1:0])
-              2'b00:        data <= {commandReadyIntOccured, 4'b0000, localityChangeIntOccured,
+              2'b00:        data_o <= {commandReadyIntOccured, 4'b0000, localityChangeIntOccured,
                                      stsValidIntOccured, dataAvailIntOccured};
-              default:      data <= 8'h00;
+              default:      data_o <= 8'h00;
             endcase
           end
           `TPM_INTF_CAPABILITY: begin
             case (addr_i[1:0])
               // TODO: for now only dataAvail and localityChange interrupts enabled, support the rest
-              2'b00:        data <= 8'h15;
+              2'b00:        data_o <= 8'h15;
               // Static burst count, legacy transfer size only
-              2'b01:        data <= 8'h01;
-              2'b10:        data <= 8'h00;
+              2'b01:        data_o <= 8'h01;
+              2'b10:        data_o <= 8'h00;
               // Interface version = 1.3 for TPM 2.0
-              2'b11:        data <= 8'h30;
+              2'b11:        data_o <= 8'h30;
             endcase
           end
           `TPM_STS: begin
             if (activeLocality === addrLocality) begin
               case (addr_i[1:0])
-                2'b00:        data <= {/* stsValid */ 1'b1, commandReady,
-                                       /* tpmGo, write only */ 1'b0, dataAvail, Expect,
-                                       /* selfTestDone, TODO */ 1'b0,
-                                       /* responseRetry, write only */ 1'b0, /* reserved */ 1'b0};
-                2'b01:        data <= 8'h01;  // burstCount[ 7:0]
-                2'b10:        data <= 8'h00;  // burstCount[15:8]
-                2'b11:        data <= {/* reserved */ 4'h0, /* tpmFamily = TPM2.0 */ 2'b01,
+                2'b00:        data_o <= {/* stsValid */ 1'b1, commandReady,
+                                         /* tpmGo, write only */ 1'b0, dataAvail, Expect,
+                                         /* selfTestDone, TODO */ 1'b0,
+                                         /* responseRetry, write only */ 1'b0, /* reserved */ 1'b0};
+                2'b01:        data_o <= 8'h01;  // burstCount[ 7:0]
+                2'b10:        data_o <= 8'h00;  // burstCount[15:8]
+                2'b11:        data_o <= {/* reserved */ 4'h0, /* tpmFamily = TPM2.0 */ 2'b01,
                                        /* resetEstablishmentBit - write only */ 1'b0,
                                        /* commandCancel - write only */ 1'b0};
               endcase
@@ -186,7 +188,7 @@ module regs_module
           `TPM_DATA_FIFO, `TPM_XDATA_FIFO: begin
             if (activeLocality === addrLocality && dataAvail) begin
               // Assuming that data from RAM is already available after half clock cycle
-              data        <= RAM_data;
+              data_o      <= RAM_data_rd;
               FIFO_offset <= FIFO_offset + 1;
               case (state)
                 `ST_CMD_COMPLETION_HDR0: begin
@@ -198,19 +200,19 @@ module regs_module
                   state <= `ST_CMD_COMPLETION_HDR2;
                 end
                 `ST_CMD_COMPLETION_HDR2: begin
-                  FIFO_left[24 +: 8]  <= RAM_data;
+                  FIFO_left[24 +: 8]  <= RAM_data_rd;
                   state               <= `ST_CMD_COMPLETION_HDR3;
                 end
                 `ST_CMD_COMPLETION_HDR3: begin
-                  FIFO_left[16 +: 8]  <= RAM_data;
+                  FIFO_left[16 +: 8]  <= RAM_data_rd;
                   state               <= `ST_CMD_COMPLETION_HDR4;
                 end
                 `ST_CMD_COMPLETION_HDR4: begin
-                  FIFO_left[ 8 +: 8]  <= RAM_data;
+                  FIFO_left[ 8 +: 8]  <= RAM_data_rd;
                   state               <= `ST_CMD_COMPLETION_HDR5;
                 end
                 `ST_CMD_COMPLETION_HDR5: begin
-                  FIFO_left <= {FIFO_left[31:8], RAM_data} - 7;
+                  FIFO_left <= {FIFO_left[31:8], RAM_data_rd} - 7;
                   state     <= `ST_CMD_COMPLETION;
                 end
                 `ST_CMD_COMPLETION: begin
@@ -222,7 +224,7 @@ module regs_module
                 end
                 default: begin
                   FIFO_offset <= FIFO_offset;  // Skip incrementation if read isn't valid
-                  data        <= 8'hFF;
+                  data_o      <= 8'hFF;
                 end
               endcase
             end
@@ -230,22 +232,22 @@ module regs_module
           `TPM_INTERFACE_ID: begin
             case (addr_i[1:0])
               // FIFO interface as defined in PTP for TPM 2.0
-              2'b00:        data <= 8'h00;
+              2'b00:        data_o <= 8'h00;
               // TIS supported, CRB not supported, Locality 0 only
-              2'b01:        data <= 8'h21;
+              2'b01:        data_o <= 8'h21;
               // We don't support changes between TIS and CRB
-              default:      data <= 8'h00;
+              default:      data_o <= 8'h00;
             endcase
           end
           `TPM_DID_VID: begin
             case (addr_i[1:0])
-              2'b00:        data <= did_vid[ 7: 0];
-              2'b01:        data <= did_vid[15: 8];
-              2'b10:        data <= did_vid[23:16];
-              2'b11:        data <= did_vid[31:24];
+              2'b00:        data_o <= did_vid[ 7: 0];
+              2'b01:        data_o <= did_vid[15: 8];
+              2'b10:        data_o <= did_vid[23:16];
+              2'b11:        data_o <= did_vid[31:24];
             endcase
           end
-          `TPM_RID:         data <= 8'h00;
+          `TPM_RID:         data_o <= 8'h00;
         endcase
       end
       driving_data  <= 1;
@@ -262,7 +264,7 @@ module regs_module
             // This implementation acts on least significant set bit. This way a given write tries
             // to request the use of locality peacefully before seizing it. Read-only bits are
             // ignored, even when set.
-            if (data_io[1]) begin           // requestUse
+            if (data_i[1]) begin           // requestUse
               if (activeLocality === `LOCALITY_NONE)
                 activeLocality <= addrLocality;
               // Specification is written in a way that suggests that requestUse is actually set in
@@ -272,7 +274,7 @@ module regs_module
               // a well-written software, but for compatibility do whatever other vendors are doing.
               else if (activeLocality !== addrLocality)
                 requestUse[addrLocality] <= 1'b1;
-            end else if (data_io[3]) begin  // Seize
+            end else if (data_i[3]) begin  // Seize
               // Specification doesn't explicitly say how to handle write to this bit if no locality
               // is set. From informative comment it can be conjectured that such case has lower
               // priority than Locality 0. As such, this case immediately sets active locality.
@@ -286,9 +288,9 @@ module regs_module
                   localityChangeIntOccured  <= 1;
                 cmd_abort;
               end
-            end else if (data_io[4]) begin  // beenSeized
+            end else if (data_i[4]) begin  // beenSeized
               beenSeized[addrLocality]  <= 1'b0;
-            end else if (data_io[5]) begin  // activeLocality
+            end else if (data_i[5]) begin  // activeLocality
               if (addrLocality === activeLocality) begin
                 casez (requestUse)
                   5'b1????: begin
@@ -332,26 +334,26 @@ module regs_module
             if (addrLocality === activeLocality) begin
               case (addr_i[1:0])
                 2'b00: begin
-                  dataAvailIntEnable      <= data_io[0];
-                  stsValidIntEnable       <= data_io[1];
-                  localityChangeIntEnable <= data_io[2];
-                  commandReadyEnable      <= data_io[7];
+                  dataAvailIntEnable      <= data_i[0];
+                  stsValidIntEnable       <= data_i[1];
+                  localityChangeIntEnable <= data_i[2];
+                  commandReadyEnable      <= data_i[7];
                 end
-                2'b11: globalIntEnable    <= data_io[7];
+                2'b11: globalIntEnable    <= data_i[7];
               endcase
             end
           end
           `TPM_INT_VECTOR: begin
-            if (addrLocality === activeLocality) int_vector <= data_io[3:0];
+            if (addrLocality === activeLocality) int_vector <= data_i[3:0];
           end
           `TPM_INT_STATUS: begin
             if (addrLocality === activeLocality) begin
               case (addr_i[1:0])
                 2'b00: begin
-                  if (data_io[0]) dataAvailIntOccured       <= 0;
-                  if (data_io[1]) stsValidIntOccured        <= 0;
-                  if (data_io[2]) localityChangeIntOccured  <= 0;
-                  if (data_io[7]) commandReadyIntOccured    <= 0;
+                  if (data_i[0]) dataAvailIntOccured       <= 0;
+                  if (data_i[1]) stsValidIntOccured        <= 0;
+                  if (data_i[2]) localityChangeIntOccured  <= 0;
+                  if (data_i[7]) commandReadyIntOccured    <= 0;
                 end
               endcase
             end
@@ -362,7 +364,7 @@ module regs_module
               case (addr_i[1:0])
                 2'b00: casez (state)
                   `ST_IDLE:
-                    if (data_io[6]) begin                     // commandReady
+                    if (data_i[6]) begin                     // commandReady
                       state         <= `ST_READY;
                       Expect        <= 1;
                       commandReady  <= 1;
@@ -370,33 +372,33 @@ module regs_module
                     end
                   // No state changes on writes to this part of register in ST_READY
                   `ST_CMD_RECEPTION_LAST:
-                    if (data_io[6]) begin                     // commandReady
+                    if (data_i[6]) begin                     // commandReady
                       state <= `ST_IDLE;
                       cmd_abort;
-                    end else if (data_io[5]) begin            // tpmGo
+                    end else if (data_i[5]) begin            // tpmGo
                       state       <= `ST_CMD_EXECUTION;
                       exec_reg    <= 1;
                       FIFO_offset <= 0;
                     end
                   `ST_CMD_RECEPTION_ANY:
-                    if (data_io[6]) begin                     // commandReady
+                    if (data_i[6]) begin                     // commandReady
                       state   <= `ST_IDLE;
                       Expect  <= 0;
                       cmd_abort;
                     end
                   `ST_CMD_EXECUTION:
-                    if (data_io[6]) begin                     // commandReady
+                    if (data_i[6]) begin                     // commandReady
                       state <= `ST_IDLE;
                       cmd_abort;
                     end
                   `ST_CMD_COMPLETION_ANY:
-                    if (data_io[6]) begin                     // commandReady
+                    if (data_i[6]) begin                     // commandReady
                       state <= `ST_IDLE;
                       cmd_abort;
                       if (state === `ST_CMD_COMPLETION_LAST)
                         // This is expected transition for last byte, so don't signal MCU
                         abort_reg <= 0;
-                    end else if (data_io[1]) begin            // responseRetry
+                    end else if (data_i[1]) begin            // responseRetry
                       state       <= `ST_CMD_COMPLETION_HDR0;
                       FIFO_offset <= 0;
                       dataAvail   <= 1;
@@ -405,11 +407,11 @@ module regs_module
                     end
                 endcase   // state
                 2'b11:
-                  if (data_io[1]) begin                       // resetEstablishmentBit
+                  if (data_i[1]) begin                       // resetEstablishmentBit
                     if (addrLocality === 4'h3 || addrLocality === 4'h4)
                       if (state === `ST_READY || state === `ST_IDLE)
                         tpmEstablishment <= 1;
-                  end // TODO: consider supporting optional commandCancel at data_io[0]
+                  end // TODO: consider supporting optional commandCancel at data_i[0]
               endcase   // addr_i[1:0]
             end       // if (activeLocality === addrLocality)
           end
@@ -417,7 +419,7 @@ module regs_module
             // TODO: handle TPM_HASH_DATA
             if ((activeLocality === addrLocality) && Expect) begin
               FIFO_offset   <= FIFO_offset + 1;
-              RAM_data_reg  <= data_io;
+              RAM_data_wr   <= data_i;
               RAM_wr_reg    <= 1;
               case (state)
                 `ST_CMD_RECEPTION_HDR0, `ST_READY: begin
@@ -430,19 +432,19 @@ module regs_module
                   state <= `ST_CMD_RECEPTION_HDR2;
                 end
                 `ST_CMD_RECEPTION_HDR2: begin
-                  FIFO_left[24 +: 8]  <= data_io;
+                  FIFO_left[24 +: 8]  <= data_i;
                   state               <= `ST_CMD_RECEPTION_HDR3;
                 end
                 `ST_CMD_RECEPTION_HDR3: begin
-                  FIFO_left[16 +: 8]  <= data_io;
+                  FIFO_left[16 +: 8]  <= data_i;
                   state               <= `ST_CMD_RECEPTION_HDR4;
                 end
                 `ST_CMD_RECEPTION_HDR4: begin
-                  FIFO_left[ 8 +: 8]  <= data_io;
+                  FIFO_left[ 8 +: 8]  <= data_i;
                   state               <= `ST_CMD_RECEPTION_HDR5;
                 end
                 `ST_CMD_RECEPTION_HDR5: begin
-                  FIFO_left <= {FIFO_left[31:8], data_io} - 7;
+                  FIFO_left <= {FIFO_left[31:8], data_i} - 7;
                   state     <= `ST_CMD_RECEPTION;
                 end
                 `ST_CMD_RECEPTION: begin
@@ -482,7 +484,6 @@ module regs_module
 
   assign wr_done = wr_done_reg;
   assign data_rd = driving_data;
-  assign data_io = driving_data ? data : 8'hzz;
   assign irq_num = int_vector;
   assign interrupt = globalIntEnable & |int_vector &
                      (dataAvailIntOccured | stsValidIntOccured | localityChangeIntOccured |
@@ -490,7 +491,6 @@ module regs_module
   assign exec = exec_reg;
   assign abort = abort_reg;
   assign RAM_addr = FIFO_offset;
-  assign RAM_data = RAM_wr ? RAM_data_reg : 8'hzz;
   assign RAM_wr = RAM_wr_reg;
   assign RAM_rd = ~RAM_wr_reg;
 
