@@ -12,11 +12,12 @@ module regs_tb ();
 
   // verilog_format: off  // verible-verilog-format messes up comments alignment
   reg         clk_i;          // Host output clock
-  wire [ 7:0] data_io;        // Data received (I/O Write) or to be sent (I/O Read) to host
+  reg  [ 7:0] data_reg;       // Data received (I/O Write) from host
+  wire [ 7:0] data_o;         // Data to be sent (I/O Read) to host
   reg  [15:0] addr_i;         // 16-bit LPC Peripheral Address
-  reg         data_wr;        // Signal to data provider that data_io has valid write data
-  wire        wr_done;        // Signal from data provider that data_io has been read
-  wire        data_rd;        // Signal from data provider that data_io has data for read
+  reg         data_wr;        // Signal to data provider that data_i has valid write data
+  wire        wr_done;        // Signal from data provider that data_i has been read
+  wire        data_rd;        // Signal from data provider that data_o has data for read
   reg         data_req;       // Signal to data provider that is requested (@posedge) or
                               // has been read (@negedge)
   wire [ 3:0] IRQn;           // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
@@ -27,19 +28,18 @@ module regs_tb ();
   wire        abort;          // Information to MCU that it should cease executing current command
 
   wire [10:0] RAM_addr;       // 2KiB address space, TODO: make it configurable
-  wire [ 7:0] RAM_data;       // 1 byte of data to/from RAM
+  reg  [ 7:0] RAM_data_rd;    // 1 byte of data from RAM
+  wire [ 7:0] RAM_data_wr;    // 1 byte of data to RAM
   wire        RAM_rd;         // Signal to memory to do a read
   wire        RAM_wr;         // Signal to memory to do a write
 
   parameter   max_cmd_rsp_size = 2048;
   integer     delay = 0, i = 0, len = 0;
-  reg  [ 7:0] data_reg;
   reg  [31:0] tmp_reg;
   reg  [ 7:0] expected [0:4095];
   reg  [ 7:0] cmd [0:max_cmd_rsp_size-1];
   reg  [ 7:0] rsp [0:max_cmd_rsp_size-1];
   reg  [ 7:0] RAM [0:max_cmd_rsp_size-1];
-  reg  [ 7:0] RAM_reg;
 
   reg [127:0] test = "begin"; // For easier navigation in gtkwave
 
@@ -79,12 +79,12 @@ module regs_tb ();
       // No semicolons in next 2 lines - may or may not catch hazards
       @(posedge data_rd)
       @(negedge clk_i)
-      data = data_io;
+      data = data_o;
       // Check if data is held during whole request
       // TODO: can we use $monitor for this?
       repeat (delay) begin
         @(negedge clk_i);
-        if (data !== data_io)
+        if (data !== data_o)
           $display("### Data changed before request was de-asserted @ %t", $realtime);
       end
       data_req = 0;
@@ -196,14 +196,18 @@ module regs_tb ();
     $dumpvars(0, regs_tb);
     $timeformat(-9, 0, " ns", 10);
 
+    // Set all of RAM to 0xFF. Note that there are no such bytes in sample commands nor responses
+    for (i = 0; i < max_cmd_rsp_size; i = i + 1)
+      RAM[i] = 8'hFF;
+
     #100;
-    addr_i    = 0;
-    data_reg  = 0;
-    data_wr   = 0;
-    data_req  = 0;
-    tmp_reg   = 0;
-    complete  = 0;
-    RAM_reg   = 0;
+    addr_i      = 0;
+    data_reg    = 0;
+    data_wr     = 0;
+    data_req    = 0;
+    tmp_reg     = 0;
+    complete    = 0;
+    RAM_data_rd = 0;
     #100;
 
     $readmemh("tb_data/expected.txt", expected);
@@ -1046,22 +1050,21 @@ module regs_tb ();
     $finish;
   end
 
+  // RAM implementation. Modulo division done to better approximate real hardware.
   always @(negedge clk_i) begin
     if (RAM_wr)
-      RAM[RAM_addr] <= RAM_data;
+      RAM[RAM_addr%max_cmd_rsp_size] <= RAM_data_wr;
     else if (RAM_rd)
-      RAM_reg       <= RAM[RAM_addr];
+      RAM_data_rd   <= RAM[RAM_addr%max_cmd_rsp_size];
   end
-
-  assign data_io = data_wr ? data_reg : 8'hzz;
-  assign RAM_data = RAM_rd ? RAM_reg : 8'hzz;
 
   // LPC Peripheral instantiation
   regs_module regs_inst (
       // LPC Interface
       .clk_i(clk_i),
       // Data provider interface
-      .data_io(data_io),
+      .data_i(data_reg),
+      .data_o(data_o),
       .addr_i(addr_i),
       .data_wr(data_wr),
       .wr_done(wr_done),
@@ -1074,7 +1077,8 @@ module regs_tb ();
       .complete(complete),
       .abort(abort),
       .RAM_addr(RAM_addr),
-      .RAM_data(RAM_data),
+      .RAM_data_wr(RAM_data_wr),
+      .RAM_data_rd(RAM_data_rd),
       .RAM_rd(RAM_rd),
       .RAM_wr(RAM_wr)
   );
