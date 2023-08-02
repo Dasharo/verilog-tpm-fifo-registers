@@ -347,7 +347,7 @@ module regs_tb ();
                  $realtime);
     end
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     // NOTE: this doesn't follow specification. According to the specification, if requestUse is 0,
@@ -371,7 +371,7 @@ module regs_tb ();
 
     request_locality (1);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f3
@@ -389,7 +389,7 @@ module regs_tb ();
 
     request_locality (2);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f4
@@ -407,7 +407,7 @@ module regs_tb ();
 
     relinquish_locality (1);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f5
@@ -423,12 +423,12 @@ module regs_tb ();
                  $realtime);
     end
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     relinquish_locality (0);
 
-    if (!int)
+    @(posedge clk_i) if (!int)
       $display("### Interrupt not asserted when it should @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f6
@@ -446,17 +446,17 @@ module regs_tb ();
     request_locality (0);
     request_locality (1);
 
-    if (!int)
+    @(posedge clk_i) if (!int)
       $display("### Interrupt not asserted when it should @ %t", $realtime);
 
     write_b (locality_addr (2, `TPM_INT_STATUS & `MASK_4B), 8'h04);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     relinquish_locality (2);
 
-    if (!int)
+    @(posedge clk_i) if (!int)
       $display("### Interrupt not asserted when it should @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f7
@@ -474,12 +474,12 @@ module regs_tb ();
 
     relinquish_locality (0);
 
-    if (!int)
+    @(posedge clk_i) if (!int)
       $display("### Interrupt not asserted when it should @ %t", $realtime);
 
     write_b (locality_addr (1, `TPM_INT_STATUS & `MASK_4B), 8'h04);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f8
@@ -494,7 +494,7 @@ module regs_tb ();
                  $realtime);
     end
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     //////////////////////////////////////////////////////
@@ -517,12 +517,12 @@ module regs_tb ();
                  $realtime);
     end
 
-    if (!int)
+    @(posedge clk_i) if (!int)
       $display("### Interrupt not asserted when it should @ %t", $realtime);
 
     write_b (locality_addr (2, `TPM_INT_STATUS & `MASK_4B), 8'h04);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     write_b (locality_addr (0, `TPM_ACCESS), 8'h08);
@@ -540,13 +540,13 @@ module regs_tb ();
                  $realtime);
     end
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     relinquish_locality (2);
     write_b (locality_addr (0, `TPM_ACCESS), 8'h08);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f11
@@ -564,7 +564,7 @@ module regs_tb ();
 
     write_b (locality_addr (1, `TPM_ACCESS), 8'h10);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     for (i = 0; i < 5; i++) begin : f12
@@ -595,12 +595,12 @@ module regs_tb ();
                  $realtime);
     end
 
-    if (!int)
+    @(posedge clk_i) if (!int)
       $display("### Interrupt not asserted when it should @ %t", $realtime);
 
     write_b (locality_addr (1, `TPM_INT_STATUS & `MASK_4B), 8'h04);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     write_b (locality_addr (2, `TPM_ACCESS), 8'h08);
@@ -620,7 +620,7 @@ module regs_tb ();
 
     // Interrupt shouldn't be signaled because Locality 2 didn't request for TPM so there was no
     // requestUse --> activeLocality transition
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     write_b (locality_addr (0, `TPM_ACCESS), 8'h10);
@@ -638,7 +638,7 @@ module regs_tb ();
                  $realtime);
     end
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     //////////////////////////////////////////////////////
@@ -786,7 +786,7 @@ module regs_tb ();
     write_w (locality_addr (0, `TPM_INT_ENABLE & `MASK_4B), 32'h80000001);
     write_b (locality_addr (0, `TPM_INT_VECTOR), 8'h01);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     load_cmd_from_file ("StartAuthSession_cmd_003b.txt", len);
@@ -816,7 +816,7 @@ module regs_tb ();
     if (!exec)
       $display("### TPM didn't send 'exec' signal @ %t", $realtime);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     load_rsp_from_file ("StartAuthSession_rsp_0030.txt", len);
@@ -825,7 +825,7 @@ module regs_tb ();
 
     // Give module some time to signal the interrupt
     @(posedge clk_i);
-    @(negedge clk_i);
+    @(posedge clk_i);
     if (!int)
       $display("### Interrupt not asserted when it should @ %t", $realtime);
 
@@ -878,7 +878,7 @@ module regs_tb ();
 
     request_locality (1);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     load_cmd_from_file ("CreatePrimary_cmd_0083.txt", len);
@@ -912,7 +912,7 @@ module regs_tb ();
     if (!exec)
       $display("### TPM didn't send 'exec' signal @ %t", $realtime);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     load_rsp_from_file ("CreatePrimary_rsp_000a.txt", len);
@@ -921,7 +921,7 @@ module regs_tb ();
 
     // Give module some time to signal the interrupt
     @(posedge clk_i);
-    @(negedge clk_i);
+    @(posedge clk_i);
     if (!int)
       $display("### Interrupt not asserted when it should @ %t", $realtime);
 
@@ -935,7 +935,7 @@ module regs_tb ();
     // Clear the interrupt
     write_b (locality_addr (1, `TPM_INT_STATUS & `MASK_4B), 8'h01);
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     read_rsp_modulo (1, len-1);
@@ -952,7 +952,7 @@ module regs_tb ();
                  rsp[i], i[15:0], $realtime);
     end
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     // Read some more bytes
@@ -972,7 +972,7 @@ module regs_tb ();
     check_state (1, 8'h90, 8'hA1);
 
     // dataAvail transitioned 0->1, so interrupt should be signaled
-    if (!int)
+    @(posedge clk_i) if (!int)
       $display("### Interrupt not asserted when it should @ %t", $realtime);
 
     // Clear the interrupt
@@ -1031,7 +1031,7 @@ module regs_tb ();
         $display("### FIFO leaked to different locality (%h) @ %t", tmp_reg[7:0], $realtime);
     end
 
-    if (int)
+    @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
     check_state (2, 8'h80, 8'hA1);
