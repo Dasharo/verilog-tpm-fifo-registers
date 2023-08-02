@@ -236,7 +236,7 @@ module regs_module
             case (addr_i[1:0])
               // FIFO interface as defined in PTP for TPM 2.0
               2'b00:        data_o <= 8'h00;
-              // TIS supported, CRB not supported, Locality 0 only
+              // TIS supported, CRB not supported, 5 localities
               2'b01:        data_o <= 8'h21;
               // We don't support changes between TIS and CRB
               default:      data_o <= 8'h00;
