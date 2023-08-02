@@ -55,41 +55,37 @@ module regs_module
 );
   // verilog_format: off  // verible-verilog-format messes up comments alignment
   //# {{LPC/SPI module interface}}
-  input  wire        clk_i;     // Clock of host interface (LPC or SPI) to counteract hazards
-                                // between data_io and wr_done/data_rd signals
+  input  wire        clk_i;     // Clock of host interface (LPC or SPI)
   input  wire [ 7:0] data_i;    // Data received (I/O Write) from host
   output reg  [ 7:0] data_o;    // Data to be sent (I/O Read) to host
   input  wire [15:0] addr_i;    // 16-bit LPC Peripheral Address
-  input  wire        data_wr;   // Signal to data provider that data_io has valid write data
-  output wire        wr_done;   // Signal from data provider that data_io has been read
-  output wire        data_rd;   // Signal from data provider that data_io has data for read
+  input  wire        data_wr;   // Signal to data provider that data_i has valid write data
+  output             wr_done;   // Signal from data provider that data_i has been read
+  output             data_rd;   // Signal from data provider that data_o has data for read
   input  wire        data_req;  // Signal to data provider that is requested (@posedge) or
                                 // has been read (@negedge)
-  output wire [ 3:0] irq_num;   // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
-  output wire        interrupt; // Whether interrupt should be signaled to host, active high
+  output      [ 3:0] irq_num;   // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
+  output reg         interrupt; // Whether interrupt should be signaled to host, active high
   //# {{MCU interrupts interface}}
-  output wire        exec;      // Signal that RAM has command that should be executed
+  output reg         exec;      // Signal that RAM has command that should be executed
   input  wire        complete;  // Signal that command execution is done and RAM holds the response
-  output wire        abort;     // Information to MCU that it should cease executing current command
+  output reg         abort;     // Information to MCU that it should cease executing current command
   //# {{RAM interface}}
-  output wire [RAM_ADDR_WIDTH-1:0] RAM_addr;  // Command/response address space size, default 2KiB
+  output reg  [RAM_ADDR_WIDTH-1:0] RAM_addr;  // Command/response address space size, default 2KiB
   input  wire [ 7:0] RAM_data_rd; // 1 byte of data from RAM
   output reg  [ 7:0] RAM_data_wr; // 1 byte of data to RAM
   output wire        RAM_rd;    // Signal to memory to do a read
-  output wire        RAM_wr;    // Signal to memory to do a write
+  output reg         RAM_wr;    // Signal to memory to do a write
+
+  reg         data_rd = 0;
+  reg  [ 3:0] irq_num = 0;
+  reg         wr_done = 0;
 
   // Internal signals
-  reg        driving_data = 0;
-  reg        wr_done_reg = 0;
   reg [ 4:0] state = `ST_IDLE;
-  reg        abort_reg = 0;
-  reg        exec_reg = 0;
-  reg [RAM_ADDR_WIDTH-1:0] FIFO_offset = 0;
-  reg        RAM_wr_reg = 0;
   reg [31:0] FIFO_left = 0;
 
   // Registers and fields same for every locality
-  reg [ 7:0] int_vector = 0;
   reg [31:0] did_vid = `TwPM;
   reg        globalIntEnable = 0;
   reg        commandReadyEnable = 0;
@@ -116,9 +112,9 @@ module regs_module
   // > the FIFOs, and transition to idle state
   task cmd_abort;
     begin
-      abort_reg     <= 1;
-      exec_reg      <= 0;
-      FIFO_offset   <= ~0;  // There is a delay on write after increment, so this has to point to -1
+      abort         <= 1;
+      exec          <= 0;
+      RAM_addr      <= ~0;  // There is a delay on write after increment, so this has to point to -1
       FIFO_left     <= 0;
       state         <= `ST_IDLE;
       Expect        <= 0;
@@ -130,13 +126,13 @@ module regs_module
   always @(posedge clk_i) begin : main
     reg [3:0] addrLocality;
     addrLocality = addr_i[15:12];
-    RAM_wr_reg   <= 0;
+    RAM_wr <= 0;
 
-    if (exec_reg & complete) begin
-      exec_reg  <= 0;
+    if (exec & complete) begin
+      exec      <= 0;
       state     <= `ST_CMD_COMPLETION_HDR0;
       dataAvail <= 1;
-      if (globalIntEnable & |int_vector & dataAvailIntEnable & ~dataAvail)
+      if (globalIntEnable & |irq_num & dataAvailIntEnable & ~dataAvail)
         dataAvailIntOccured <= 1;
     end else if (data_req && ~data_rd) begin
       data_o <= 8'hFF;
@@ -158,7 +154,7 @@ module regs_module
               default:      data_o <= 8'h00;
             endcase
           end
-          `TPM_INT_VECTOR:  data_o <= {4'h0, int_vector};
+          `TPM_INT_VECTOR:  data_o <= {4'h0, irq_num};
           `TPM_INT_STATUS: begin
             case (addr_i[1:0])
               2'b00:        data_o <= {commandReadyIntOccured, 4'b0000, localityChangeIntOccured,
@@ -195,8 +191,8 @@ module regs_module
           `TPM_DATA_FIFO, `TPM_XDATA_FIFO: begin
             if (activeLocality === addrLocality && dataAvail) begin
               // Assuming that data from RAM is already available after half clock cycle
-              data_o      <= RAM_data_rd;
-              FIFO_offset <= FIFO_offset + 1;
+              data_o    <= RAM_data_rd;
+              RAM_addr  <= RAM_addr + 1;
               case (state)
                 `ST_CMD_COMPLETION_HDR0: begin
                   // Always 8'h80 for valid commands
@@ -230,8 +226,8 @@ module regs_module
                   end
                 end
                 default: begin
-                  FIFO_offset <= FIFO_offset;  // Skip incrementation if read isn't valid
-                  data_o      <= 8'hFF;
+                  RAM_addr  <= RAM_addr;  // Skip incrementation if read isn't valid
+                  data_o    <= 8'hFF;
                 end
               endcase
             end
@@ -257,10 +253,10 @@ module regs_module
           `TPM_RID:         data_o <= 8'h00;
         endcase
       end
-      driving_data  <= 1;
+      data_rd  <= 1;
     end else if (data_rd && ~data_req) begin
-      // Stop driving data
-      driving_data  <= 0;
+      // Stop sending information that data is ready for reading
+      data_rd  <= 0;
     end else if (data_wr && ~wr_done) begin
       if (addrLocality < 4'h5) begin   // Locality 0-4
         casez (addr_i[11:0])
@@ -291,7 +287,7 @@ module regs_module
                 activeLocality              <= addrLocality;
                 requestUse[addrLocality]    <= 1'b0;
                 beenSeized[activeLocality]  <= 1'b1;
-                if (localityChangeIntEnable & |int_vector & globalIntEnable & requestUse[addrLocality])
+                if (localityChangeIntEnable & |irq_num & globalIntEnable & requestUse[addrLocality])
                   localityChangeIntOccured  <= 1;
                 cmd_abort;
               end
@@ -303,31 +299,31 @@ module regs_module
                   5'b1????: begin
                     activeLocality  <= 4'h4;
                     requestUse[4]   <= 1'b0;
-                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                    if (localityChangeIntEnable & |irq_num & globalIntEnable)
                       localityChangeIntOccured <= 1;
                   end
                   5'b01???: begin
                     activeLocality  <= 4'h3;
                     requestUse[3]   <= 1'b0;
-                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                    if (localityChangeIntEnable & |irq_num & globalIntEnable)
                       localityChangeIntOccured <= 1;
                   end
                   5'b001??: begin
                     activeLocality  <= 4'h2;
                     requestUse[2]   <= 1'b0;
-                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                    if (localityChangeIntEnable & |irq_num & globalIntEnable)
                       localityChangeIntOccured <= 1;
                   end
                   5'b0001?: begin
                     activeLocality  <= 4'h1;
                     requestUse[1]   <= 1'b0;
-                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                    if (localityChangeIntEnable & |irq_num & globalIntEnable)
                       localityChangeIntOccured <= 1;
                   end
                   5'b00001: begin
                     activeLocality  <= 4'h0;
                     requestUse[0]   <= 1'b0;
-                    if (localityChangeIntEnable & |int_vector & globalIntEnable)
+                    if (localityChangeIntEnable & |irq_num & globalIntEnable)
                       localityChangeIntOccured <= 1;
                   end
                   5'b00000: activeLocality <= `LOCALITY_NONE;
@@ -351,7 +347,7 @@ module regs_module
             end
           end
           `TPM_INT_VECTOR: begin
-            if (addrLocality === activeLocality) int_vector <= data_i[3:0];
+            if (addrLocality === activeLocality) irq_num <= data_i[3:0];
           end
           `TPM_INT_STATUS: begin
             if (addrLocality === activeLocality) begin
@@ -375,7 +371,7 @@ module regs_module
                       state         <= `ST_READY;
                       Expect        <= 1;
                       commandReady  <= 1;
-                      abort_reg     <= 0;
+                      abort         <= 0;
                     end
                   // No state changes on writes to this part of register in ST_READY
                   `ST_CMD_RECEPTION_LAST:
@@ -383,9 +379,9 @@ module regs_module
                       state <= `ST_IDLE;
                       cmd_abort;
                     end else if (data_i[5]) begin            // tpmGo
-                      state       <= `ST_CMD_EXECUTION;
-                      exec_reg    <= 1;
-                      FIFO_offset <= 0;
+                      state     <= `ST_CMD_EXECUTION;
+                      exec      <= 1;
+                      RAM_addr  <= 0;
                     end
                   `ST_CMD_RECEPTION_ANY:
                     if (data_i[6]) begin                     // commandReady
@@ -404,12 +400,12 @@ module regs_module
                       cmd_abort;
                       if (state === `ST_CMD_COMPLETION_LAST)
                         // This is expected transition for last byte, so don't signal MCU
-                        abort_reg <= 0;
+                        abort <= 0;
                     end else if (data_i[1]) begin            // responseRetry
-                      state       <= `ST_CMD_COMPLETION_HDR0;
-                      FIFO_offset <= 0;
-                      dataAvail   <= 1;
-                      if (globalIntEnable & |int_vector & dataAvailIntEnable & ~dataAvail)
+                      state     <= `ST_CMD_COMPLETION_HDR0;
+                      RAM_addr  <= 0;
+                      dataAvail <= 1;
+                      if (globalIntEnable & |irq_num & dataAvailIntEnable & ~dataAvail)
                         dataAvailIntOccured <= 1;
                     end
                 endcase   // state
@@ -425,9 +421,9 @@ module regs_module
           `TPM_DATA_FIFO, `TPM_XDATA_FIFO: begin
             // TODO: handle TPM_HASH_DATA
             if ((activeLocality === addrLocality) && Expect) begin
-              FIFO_offset   <= FIFO_offset + 1;
-              RAM_data_wr   <= data_i;
-              RAM_wr_reg    <= 1;
+              RAM_addr    <= RAM_addr + 1;
+              RAM_data_wr <= data_i;
+              RAM_wr      <= 1;
               case (state)
                 `ST_CMD_RECEPTION_HDR0, `ST_READY: begin
                   // Always 8'h80 for valid commands
@@ -462,8 +458,8 @@ module regs_module
                   end
                 end
                 default: begin
-                  FIFO_offset <= FIFO_offset;  // Skip incrementation if write isn't valid
-                  RAM_wr_reg  <= 0;
+                  RAM_addr  <= RAM_addr;  // Skip incrementation if write isn't valid
+                  RAM_wr    <= 0;
                 end
               endcase
             end
@@ -472,22 +468,17 @@ module regs_module
           // TPM_DID_VID, TPM_RID - read-only registers
         endcase
       end
-      wr_done_reg <= 1;
+      wr_done <= 1;
     end else if (wr_done && ~data_wr) begin
-      wr_done_reg <= 0;
+      wr_done <= 0;
     end
   end
 
-  assign wr_done = wr_done_reg;
-  assign data_rd = driving_data;
-  assign irq_num = int_vector;
-  assign interrupt = globalIntEnable & |int_vector &
-                     (dataAvailIntOccured | stsValidIntOccured | localityChangeIntOccured |
-                      commandReadyIntOccured);
-  assign exec = exec_reg;
-  assign abort = abort_reg;
-  assign RAM_addr = FIFO_offset;
-  assign RAM_wr = RAM_wr_reg;
-  assign RAM_rd = ~RAM_wr_reg;
+  always @(negedge clk_i)
+    interrupt <= globalIntEnable & |irq_num &
+                 (dataAvailIntOccured | stsValidIntOccured | localityChangeIntOccured |
+                  commandReadyIntOccured);
+
+  assign RAM_rd = ~RAM_wr;
 
 endmodule
