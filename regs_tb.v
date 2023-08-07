@@ -30,7 +30,6 @@ module regs_tb ();
   wire [10:0] RAM_addr;       // 2KiB address space, TODO: make it configurable
   reg  [ 7:0] RAM_data_rd;    // 1 byte of data from RAM
   wire [ 7:0] RAM_data_wr;    // 1 byte of data to RAM
-  wire        RAM_rd;         // Signal to memory to do a read
   wire        RAM_wr;         // Signal to memory to do a write
 
   parameter   max_cmd_rsp_size = 2048;
@@ -1054,7 +1053,7 @@ module regs_tb ();
   always @(negedge clk_i) begin
     if (RAM_wr)
       RAM[RAM_addr%max_cmd_rsp_size] <= RAM_data_wr;
-    else if (RAM_rd)
+    else
       RAM_data_rd   <= RAM[RAM_addr%max_cmd_rsp_size];
   end
 
@@ -1079,7 +1078,6 @@ module regs_tb ();
       .RAM_addr(RAM_addr),
       .RAM_data_wr(RAM_data_wr),
       .RAM_data_rd(RAM_data_rd),
-      .RAM_rd(RAM_rd),
       .RAM_wr(RAM_wr)
   );
 

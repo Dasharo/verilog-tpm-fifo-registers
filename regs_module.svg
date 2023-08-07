@@ -3,7 +3,7 @@
 <svg xmlns="http://www.w3.org/2000/svg"
 xmlns:xlink="http://www.w3.org/1999/xlink"
 xml:space="preserve"
-width="645" height="350" viewBox="-108 -20 645.0 350.0" version="1.1">
+width="638" height="330" viewBox="-108 -20 638.0 330.0" version="1.1">
 <style type="text/css">
 <![CDATA[
 .fnt1 {fill:#000000;
@@ -68,22 +68,22 @@ width="645" height="350" viewBox="-108 -20 645.0 350.0" version="1.1">
 <g transform="translate(280,37)">
 <line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="1"/>
 <text class="fnt1" x="-10" y="0" text-anchor="end" dy="3.5">wr_done</text>
-<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">wire</text>
+<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">reg</text>
 </g>
 <g transform="translate(280,57)">
 <line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="1"/>
 <text class="fnt1" x="-10" y="0" text-anchor="end" dy="3.5">data_rd</text>
-<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">wire</text>
+<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">reg</text>
 </g>
 <g transform="translate(280,77)">
 <line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="3"/>
 <text class="fnt1" x="-10" y="0" text-anchor="end" dy="3.5">irq_num</text>
-<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">wire <tspan fill="#039BE5">[3:0]</tspan></text>
+<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">reg <tspan fill="#039BE5">[3:0]</tspan></text>
 </g>
 <g transform="translate(280,97)">
 <line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="1"/>
 <text class="fnt1" x="-10" y="0" text-anchor="end" dy="3.5">interrupt</text>
-<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">wire</text>
+<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">reg</text>
 </g>
 </g>
 <g transform="translate(0,165.0)">
@@ -97,16 +97,16 @@ width="645" height="350" viewBox="-108 -20 645.0 350.0" version="1.1">
 <g transform="translate(280,17)">
 <line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="1"/>
 <text class="fnt1" x="-10" y="0" text-anchor="end" dy="3.5">exec</text>
-<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">wire</text>
+<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">reg</text>
 </g>
 <g transform="translate(280,37)">
 <line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="1"/>
 <text class="fnt1" x="-10" y="0" text-anchor="end" dy="3.5">abort</text>
-<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">wire</text>
+<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">reg</text>
 </g>
 </g>
 <g transform="translate(0,232.0)">
-<rect x="0" y="-15.0" width="280" height="107.0" stroke="#000000" fill="#FFAFFD" stroke-width="1"/>
+<rect x="0" y="-15.0" width="280" height="87.0" stroke="#000000" fill="#FFAFFD" stroke-width="1"/>
 <text class="fnt2" x="140.0" y="0" text-anchor="middle" dy="2.5">RAM interface</text>
 <g transform="translate(0,17)">
 <line x1="-20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="3"/>
@@ -116,7 +116,7 @@ width="645" height="350" viewBox="-108 -20 645.0 350.0" version="1.1">
 <g transform="translate(280,17)">
 <line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="3"/>
 <text class="fnt1" x="-10" y="0" text-anchor="end" dy="3.5">RAM_addr</text>
-<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">wire <tspan fill="#039BE5">[RAM_ADDR_WIDTH-1:0]</tspan></text>
+<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">reg <tspan fill="#039BE5">[RAM_ADDR_WIDTH-1:0]</tspan></text>
 </g>
 <g transform="translate(280,37)">
 <line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="3"/>
@@ -125,14 +125,9 @@ width="645" height="350" viewBox="-108 -20 645.0 350.0" version="1.1">
 </g>
 <g transform="translate(280,57)">
 <line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="1"/>
-<text class="fnt1" x="-10" y="0" text-anchor="end" dy="3.5">RAM_rd</text>
-<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">wire</text>
-</g>
-<g transform="translate(280,77)">
-<line x1="20" y1="0" x2="0" y2="0" stroke="#000000" fill="none" stroke-width="1"/>
 <text class="fnt1" x="-10" y="0" text-anchor="end" dy="3.5">RAM_wr</text>
-<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">wire</text>
+<text class="fnt1" x="30" y="0" text-anchor="normal" dy="3.5" style="fill:#969696">reg</text>
 </g>
 </g>
-<rect x="1.0" y="24.0" width="278.0" height="299.0" stroke="#000000" fill="none" stroke-width="3"/>
+<rect x="1.0" y="24.0" width="278.0" height="279.0" stroke="#000000" fill="none" stroke-width="3"/>
 </svg>

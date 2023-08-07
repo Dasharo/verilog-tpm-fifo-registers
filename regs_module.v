@@ -50,7 +50,6 @@ module regs_module
     RAM_addr,
     RAM_data_rd,
     RAM_data_wr,
-    RAM_rd,
     RAM_wr
 );
   // verilog_format: off  // verible-verilog-format messes up comments alignment
@@ -60,11 +59,11 @@ module regs_module
   output reg  [ 7:0] data_o;    // Data to be sent (I/O Read) to host
   input  wire [15:0] addr_i;    // 16-bit LPC Peripheral Address
   input  wire        data_wr;   // Signal to data provider that data_i has valid write data
-  output             wr_done;   // Signal from data provider that data_i has been read
-  output             data_rd;   // Signal from data provider that data_o has data for read
+  output reg         wr_done;   // Signal from data provider that data_i has been read
+  output reg         data_rd;   // Signal from data provider that data_o has data for read
   input  wire        data_req;  // Signal to data provider that is requested (@posedge) or
                                 // has been read (@negedge)
-  output      [ 3:0] irq_num;   // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
+  output reg  [ 3:0] irq_num;   // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
   output reg         interrupt; // Whether interrupt should be signaled to host, active high
   //# {{MCU interrupts interface}}
   output reg         exec;      // Signal that RAM has command that should be executed
@@ -74,12 +73,11 @@ module regs_module
   output reg  [RAM_ADDR_WIDTH-1:0] RAM_addr;  // Command/response address space size, default 2KiB
   input  wire [ 7:0] RAM_data_rd; // 1 byte of data from RAM
   output reg  [ 7:0] RAM_data_wr; // 1 byte of data to RAM
-  output wire        RAM_rd;    // Signal to memory to do a read
   output reg         RAM_wr;    // Signal to memory to do a write
 
-  reg         data_rd = 0;
-  reg  [ 3:0] irq_num = 0;
-  reg         wr_done = 0;
+  initial     data_rd = 0;
+  initial     irq_num = 4'h0;
+  initial     wr_done = 0;
 
   // Internal signals
   reg [ 4:0] state = `ST_IDLE;
@@ -478,7 +476,5 @@ module regs_module
     interrupt <= globalIntEnable & |irq_num &
                  (dataAvailIntOccured | stsValidIntOccured | localityChangeIntOccured |
                   commandReadyIntOccured);
-
-  assign RAM_rd = ~RAM_wr;
 
 endmodule
