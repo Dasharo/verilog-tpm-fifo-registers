@@ -33,4 +33,7 @@
 
 `define TwPM                32'h4D507754        // "TwPM" in little endian
 
+`define OP_TYPE_NONE        4'h0
+`define OP_TYPE_CMD         4'h1
+
 // verilog_format: on

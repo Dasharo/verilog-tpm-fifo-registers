@@ -7,6 +7,7 @@
 `include "defines.v"
 
 `define MASK_4B             12'b111111111100
+`define RAM_ADDR_WIDTH      11
 
 module regs_tb ();
 
@@ -23,11 +24,14 @@ module regs_tb ();
   wire [ 3:0] IRQn;           // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
   wire        int;            // Whether interrupt should be signaled to host, active high
 
+  wire [ 3:0] op_type;        // Operation to be performed by MCU
+  wire [ 3:0] locality;       // Locality at the time of asserting exec
+  wire [`RAM_ADDR_WIDTH-1:0] buf_len; // Size of data to be read by MCU from buffer
   wire        exec;           // Signal that RAM has command that should be executed
   reg         complete;       // Signal that command execution is done and RAM holds the response
   wire        abort;          // Information to MCU that it should cease executing current command
 
-  wire [10:0] RAM_addr;       // 2KiB address space, TODO: make it configurable
+  wire [`RAM_ADDR_WIDTH-1:0] RAM_addr; // 2KiB address space
   reg  [ 7:0] RAM_data_rd;    // 1 byte of data from RAM
   wire [ 7:0] RAM_data_wr;    // 1 byte of data to RAM
   wire        RAM_wr;         // Signal to memory to do a write
@@ -815,6 +819,16 @@ module regs_tb ();
     if (!exec)
       $display("### TPM didn't send 'exec' signal @ %t", $realtime);
 
+    if (op_type !== `OP_TYPE_CMD)
+      $display("### Wrong operation reported (expected %h, got %h) @ %t", `OP_TYPE_CMD, op_type,
+               $realtime);
+
+    if (locality != 0)
+      $display("### Wrong locality reported (expected %d, got %d) @ %t", 0, locality, $realtime);
+
+    if (buf_len != len)
+      $display("### Wrong size reported (expected %h, got %h) @ %t", len, buf_len, $realtime);
+
     @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
 
@@ -910,6 +924,16 @@ module regs_tb ();
 
     if (!exec)
       $display("### TPM didn't send 'exec' signal @ %t", $realtime);
+
+    if (op_type !== `OP_TYPE_CMD)
+      $display("### Wrong operation reported (expected %h, got %h) @ %t", `OP_TYPE_CMD, op_type,
+               $realtime);
+
+    if (locality != 1)
+      $display("### Wrong locality reported (expected %d, got %d) @ %t", 4'h1, locality, $realtime);
+
+    if (buf_len != len)
+      $display("### Wrong size reported (expected %h, got %h) @ %t", len, buf_len, $realtime);
 
     @(posedge clk_i) if (int)
       $display("### Interrupt asserted when it shouldn't @ %t", $realtime);
@@ -1058,7 +1082,7 @@ module regs_tb ();
   end
 
   // LPC Peripheral instantiation
-  regs_module regs_inst (
+  regs_module #(`RAM_ADDR_WIDTH) regs_inst (
       // LPC Interface
       .clk_i(clk_i),
       // Data provider interface
@@ -1072,6 +1096,9 @@ module regs_tb ();
       .irq_num(IRQn),
       .interrupt(int),
       // MCU interface
+      .op_type(op_type),
+      .locality(locality),
+      .buf_len(buf_len),
       .exec(exec),
       .complete(complete),
       .abort(abort),

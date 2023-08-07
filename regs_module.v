@@ -44,6 +44,9 @@ module regs_module
     data_req,
     irq_num,
     interrupt,
+    op_type,
+    locality,
+    buf_len,
     exec,
     complete,
     abort,
@@ -65,7 +68,10 @@ module regs_module
                                 // has been read (@negedge)
   output reg  [ 3:0] irq_num;   // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
   output reg         interrupt; // Whether interrupt should be signaled to host, active high
-  //# {{MCU interrupts interface}}
+  //# {{MCU data and interrupts interface}}
+  output reg  [ 3:0] op_type;   // Operation to be performed by MCU
+  output reg  [ 3:0] locality;  // Locality at the time of asserting exec
+  output reg  [RAM_ADDR_WIDTH-1:0] buf_len; // Size of data to be read by MCU from buffer
   output reg         exec;      // Signal that RAM has command that should be executed
   input  wire        complete;  // Signal that command execution is done and RAM holds the response
   output reg         abort;     // Information to MCU that it should cease executing current command
@@ -112,6 +118,9 @@ module regs_module
     begin
       abort         <= 1;
       exec          <= 0;
+      locality      <= `LOCALITY_NONE;
+      op_type       <= `OP_TYPE_NONE;
+      buf_len       <= 0;
       RAM_addr      <= ~0;  // There is a delay on write after increment, so this has to point to -1
       FIFO_left     <= 0;
       state         <= `ST_IDLE;
@@ -128,6 +137,9 @@ module regs_module
 
     if (exec & complete) begin
       exec      <= 0;
+      locality  <= `LOCALITY_NONE;
+      op_type   <= `OP_TYPE_NONE;
+      buf_len   <= 0;
       state     <= `ST_CMD_COMPLETION_HDR0;
       dataAvail <= 1;
       if (globalIntEnable & |irq_num & dataAvailIntEnable & ~dataAvail)
@@ -379,6 +391,9 @@ module regs_module
                     end else if (data_i[5]) begin            // tpmGo
                       state     <= `ST_CMD_EXECUTION;
                       exec      <= 1;
+                      locality  <= activeLocality;
+                      buf_len   <= RAM_addr + 1;
+                      op_type   <= `OP_TYPE_CMD;
                       RAM_addr  <= 0;
                     end
                   `ST_CMD_RECEPTION_ANY:
