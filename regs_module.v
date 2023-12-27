@@ -84,6 +84,7 @@ module regs_module
   initial     data_rd = 0;
   initial     irq_num = 4'h0;
   initial     wr_done = 0;
+  initial     RAM_addr = ~0;
 
   // Internal signals
   reg [ 4:0] state = `ST_IDLE;
