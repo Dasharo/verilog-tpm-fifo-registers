@@ -67,7 +67,7 @@ module regs_module
   input  wire        data_req;  // Signal to data provider that is requested (@posedge) or
                                 // has been read (@negedge)
   output reg  [ 3:0] irq_num;   // IRQ number, copy of TPM_INT_VECTOR_x.sirqVec
-  output reg         interrupt; // Whether interrupt should be signaled to host, active high
+  output wire        interrupt; // Whether interrupt should be signaled to host, active high
   //# {{MCU data and interrupts interface}}
   output reg  [ 3:0] op_type;   // Operation to be performed by MCU
   output reg  [ 3:0] locality;  // Locality at the time of asserting exec
@@ -81,35 +81,32 @@ module regs_module
   output reg  [ 7:0] RAM_data_wr; // 1 byte of data to RAM
   output reg         RAM_wr;    // Signal to memory to do a write
 
-  initial     data_rd = 0;
-  initial     irq_num = 4'h0;
-  initial     wr_done = 0;
-  initial     RAM_addr = ~0;
-
   // Internal signals
-  reg [ 4:0] state = `ST_IDLE;
-  reg [31:0] FIFO_left = 0;
+  reg [ 4:0] state;
+  reg [31:0] FIFO_left;
 
   // Registers and fields same for every locality
   reg [31:0] did_vid = `TwPM;
-  reg        globalIntEnable = 0;
-  reg        commandReadyEnable = 0;
-  reg        localityChangeIntEnable = 0;
-  reg        stsValidIntEnable = 0;
-  reg        dataAvailIntEnable = 0;
-  reg        commandReadyIntOccured = 0;
-  reg        localityChangeIntOccured = 0;
-  reg        stsValidIntOccured = 0;
-  reg        dataAvailIntOccured = 0;
-  reg        commandReady = 0;
-  reg        dataAvail = 0;
-  reg        Expect = 0;
-  reg        tpmEstablishment = 1;  // TODO: how to make this bit survive resets and power cycles?
+  reg        globalIntEnable;
+  reg        commandReadyEnable;
+  reg        localityChangeIntEnable;
+  reg        stsValidIntEnable;
+  reg        dataAvailIntEnable;
+  reg        commandReadyIntOccured;
+  reg        localityChangeIntOccured;
+  reg        stsValidIntOccured;
+  reg        dataAvailIntOccured;
+  reg        commandReady;
+  reg        dataAvail;
+  reg        Expect;
+  reg        tpmEstablishment;
 
   // Per-locality fields
-  reg  [3:0] activeLocality = `LOCALITY_NONE;
-  reg  [4:0] requestUse = 5'h00;
-  reg  [4:0] beenSeized = 5'h00;
+  reg  [3:0] activeLocality;
+  reg  [4:0] requestUse;
+  reg  [4:0] beenSeized;
+
+  reg  [7:0] local_reset_reg = 8'b0;
 
   // verilog_format: on
 
@@ -131,12 +128,39 @@ module regs_module
     end
   endtask
 
-  always @(posedge clk_i) begin : main
+  always @(posedge clk_i) begin
+    local_reset_reg <= {local_reset_reg[6:0], 1'b1};
+  end
+
+  always @(local_reset_reg or complete or data_req or data_wr or addr_i) begin : main
     reg [3:0] addrLocality;
     addrLocality = addr_i[15:12];
     RAM_wr <= 0;
 
-    if (exec & complete) begin
+    if (local_reset_reg[7] === 1'b0) begin
+      RAM_addr = ~0;
+      state = `ST_IDLE;
+      FIFO_left = 0;
+      commandReady = 0;
+      dataAvail = 0;
+      Expect = 0;
+      activeLocality = `LOCALITY_NONE;
+      requestUse = 5'h00;
+      beenSeized = 5'h00;
+      data_rd = 0;
+      irq_num = 4'h0;
+      wr_done = 0;
+      globalIntEnable = 0;
+      commandReadyEnable = 0;
+      localityChangeIntEnable = 0;
+      stsValidIntEnable = 0;
+      dataAvailIntEnable = 0;
+      commandReadyIntOccured = 0;
+      localityChangeIntOccured = 0;
+      stsValidIntOccured = 0;
+      dataAvailIntOccured = 0;
+      tpmEstablishment = 1;  // TODO: how to make this bit survive resets and power cycles?
+    end else if (exec & complete) begin
       exec      <= 0;
       locality  <= `LOCALITY_NONE;
       op_type   <= `OP_TYPE_NONE;
@@ -488,9 +512,8 @@ module regs_module
     end
   end
 
-  always @(negedge clk_i)
-    interrupt <= globalIntEnable & |irq_num &
-                 (dataAvailIntOccured | stsValidIntOccured | localityChangeIntOccured |
-                  commandReadyIntOccured);
+  assign interrupt = globalIntEnable & |irq_num &
+                     (dataAvailIntOccured | stsValidIntOccured |
+                      localityChangeIntOccured | commandReadyIntOccured);
 
 endmodule
