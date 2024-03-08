@@ -35,6 +35,7 @@ module regs_module
 #(parameter RAM_ADDR_WIDTH=11)
 (
     clk_i,
+    reset,
     data_i,
     data_o,
     addr_i,
@@ -58,6 +59,7 @@ module regs_module
   // verilog_format: off  // verible-verilog-format messes up comments alignment
   //# {{LPC/SPI module interface}}
   input  wire        clk_i;     // Clock of host interface (LPC or SPI)
+  input  wire        reset;     // Reset signal, active low
   input  wire [ 7:0] data_i;    // Data received (I/O Write) from host
   output reg  [ 7:0] data_o;    // Data to be sent (I/O Read) to host
   input  wire [15:0] addr_i;    // 16-bit LPC Peripheral Address
@@ -80,11 +82,6 @@ module regs_module
   input  wire [ 7:0] RAM_data_rd; // 1 byte of data from RAM
   output reg  [ 7:0] RAM_data_wr; // 1 byte of data to RAM
   output reg         RAM_wr;    // Signal to memory to do a write
-
-  initial     data_rd = 0;
-  initial     irq_num = 4'h0;
-  initial     wr_done = 0;
-  initial     RAM_addr = ~0;
 
   // Internal signals
   reg [ 4:0] state = `ST_IDLE;
@@ -111,7 +108,10 @@ module regs_module
   reg  [4:0] requestUse = 5'h00;
   reg  [4:0] beenSeized = 5'h00;
 
+  wire [3:0] addrLocality;
   // verilog_format: on
+
+  assign addrLocality = addr_i[15:12];
 
   // > Upon a successful command abort, the TPM SHALL stop the currently executing command, clear
   // > the FIFOs, and transition to idle state
@@ -131,12 +131,26 @@ module regs_module
     end
   endtask
 
-  always @(posedge clk_i) begin : main
-    reg [3:0] addrLocality;
-    addrLocality = addr_i[15:12];
+  always @(posedge clk_i or negedge reset) begin
     RAM_wr <= 0;
 
-    if (exec & complete) begin
+    if (~reset) begin
+      abort          <= 0;
+      exec           <= 0;
+      activeLocality <= `LOCALITY_NONE;
+      locality       <= `LOCALITY_NONE;
+      op_type        <= `OP_TYPE_NONE;
+      buf_len        <= 0;
+      RAM_addr       <= ~0;  // There is a delay on write after increment, so this has to point to -1
+      FIFO_left      <= 0;
+      state          <= `ST_IDLE;
+      Expect         <= 0;
+      dataAvail      <= 0;
+      commandReady   <= 0;
+      data_rd        <= 0;
+      irq_num        <= 4'h0;
+      wr_done        <= 0;
+    end else if (exec & complete) begin
       exec      <= 0;
       locality  <= `LOCALITY_NONE;
       op_type   <= `OP_TYPE_NONE;
@@ -268,7 +282,7 @@ module regs_module
     end else if (data_rd && ~data_req) begin
       // Stop sending information that data is ready for reading
       data_rd  <= 0;
-    end else if (data_wr && ~wr_done) begin
+    end else if (data_wr) begin
       if (addrLocality < 4'h5) begin   // Locality 0-4
         casez (addr_i[11:0])
           `TPM_ACCESS: begin
