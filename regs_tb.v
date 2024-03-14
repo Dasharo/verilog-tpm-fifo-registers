@@ -13,6 +13,7 @@ module regs_tb ();
 
   // verilog_format: off  // verible-verilog-format messes up comments alignment
   reg         clk_i;          // Host output clock
+  reg         reset;          // Power-on reset
   reg  [ 7:0] data_reg;       // Data received (I/O Write) from host
   wire [ 7:0] data_o;         // Data to be sent (I/O Read) to host
   reg  [15:0] addr_i;         // 16-bit LPC Peripheral Address
@@ -190,6 +191,7 @@ module regs_tb ();
 
   initial begin
     clk_i = 1'b1;
+    reset = 1'b0;
     forever #20 clk_i = ~clk_i;
   end
 
@@ -211,6 +213,7 @@ module regs_tb ();
     tmp_reg     = 0;
     complete    = 0;
     RAM_data_rd = 0;
+    reset       = 1;
     #100;
 
     $readmemh("tb_data/expected.txt", expected);
@@ -1081,10 +1084,11 @@ module regs_tb ();
       RAM_data_rd   <= RAM[RAM_addr%max_cmd_rsp_size];
   end
 
-  // LPC Peripheral instantiation
+  // Registers module instantiation
   regs_module #(`RAM_ADDR_WIDTH) regs_inst (
-      // LPC Interface
+      // Global signals
       .clk_i(clk_i),
+      .reset(reset),
       // Data provider interface
       .data_i(data_reg),
       .data_o(data_o),
